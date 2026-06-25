@@ -1,0 +1,27 @@
+# ── 已在 live_vision 环境中（无需重装） ─────────────────────────────
+# fastapi, uvicorn, websockets, numpy, pillow, pydub
+# python-dotenv, python-multipart, openai, starlette
+
+# ── 需要额外安装（在 live_vision 环境中执行）────────────────────────
+# conda activate live_vision
+# pip install -r requirements.txt
+
+# NitroGen 通信
+pyzmq>=25.0.0
+
+# 视频处理
+opencv-python>=4.9.0
+
+# AI
+anthropic>=0.25.0
+openai-whisper>=20231117
+
+# TTS
+edge-tts>=6.1.9
+
+# 音频播放（任选其一）
+pygame>=2.5.0       # 推荐，简单可靠
+# pyaudio>=0.2.14   # 备选
+
+# 异步文件
+aiofiles>=23.0.0

@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NitroGen 游戏语音教练</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div id="app">
+
+    <!-- ── 顶部标题栏 ──────────────────────────────────────────── -->
+    <header id="header">
+      <span class="title">NitroGen 游戏语音教练</span>
+      <div id="status-bar">
+        <span class="dot" id="dot-nitrogen" title="NitroGen 推理状态">NitroGen</span>
+        <span class="dot" id="dot-vlm"      title="VLM 处理状态">VLM</span>
+        <span id="tts-status">🔇 待机</span>
+        <span id="mic-status">🎤 未连接</span>
+      </div>
+    </header>
+
+    <!-- ── 主体：左侧视频 + 右侧对话 ─────────────────────────────── -->
+    <main id="main">
+
+      <!-- 左侧：视频区 -->
+      <section id="video-section">
+        <div id="video-upload-area" class="upload-area">
+          <p>选择本地游戏视频文件</p>
+          <input type="file" id="file-input" accept="video/*" />
+          <label for="file-input" class="btn">选择视频</label>
+          <p class="hint">支持 MP4、AVI、MKV 等格式</p>
+        </div>
+
+        <div id="video-player-area" style="display:none">
+          <video id="video-player" controls></video>
+          <div id="video-controls">
+            <button id="btn-start-analysis" class="btn btn-primary">▶ 开始分析</button>
+            <button id="btn-stop-analysis"  class="btn btn-danger"   style="display:none">■ 停止</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- 右侧：对话记录区 -->
+      <section id="chat-section">
+        <div id="chat-header">
+          <span>💬 对话记录</span>
+          <button id="btn-clear-chat" class="btn-small">清空</button>
+        </div>
+        <div id="chat-messages">
+          <div class="chat-placeholder">分析开始后，AI 提示和你的问题会显示在这里</div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- ── 底部：调试面板（可折叠）──────────────────────────────── -->
+    <details id="debug-panel">
+      <summary>🔧 NitroGen 实时感知信号</summary>
+      <div id="debug-content">
+        <div class="debug-row">
+          <span class="label">主导意图</span>
+          <span id="dbg-intent">—</span>
+          <span class="label">置信度</span>
+          <span id="dbg-conf">—</span>
+          <span class="label">方向</span>
+          <span id="dbg-dir">—</span>
+        </div>
+        <div class="debug-row">
+          <span class="label">预测序列</span>
+          <span id="dbg-horizon">—</span>
+        </div>
+        <div class="debug-row">
+          <span class="label">视频时间</span>
+          <span id="dbg-time">—</span>
+        </div>
+      </div>
+    </details>
+
+  </div><!-- /#app -->
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
