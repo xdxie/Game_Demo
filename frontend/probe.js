@@ -93,15 +93,42 @@ function wsUrl() {
 }
 
 function openWebSocket() {
+  const url = wsUrl();
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(wsUrl());
+    let settled = false;
+    const fail = (msg) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(new Error(msg));
+    };
+
+    const ws = new WebSocket(url);
     ws.binaryType = 'arraybuffer';
     const timer = setTimeout(() => {
       ws.close();
-      reject(new Error('WebSocket 连接超时 (8s)'));
+      fail(`WebSocket 连接超时 (8s)：${url}`);
     }, 8000);
-    ws.onopen = () => { clearTimeout(timer); resolve(ws); };
-    ws.onerror = () => { clearTimeout(timer); reject(new Error('WebSocket 连接失败')); };
+
+    ws.onopen = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(ws);
+    };
+    ws.onerror = () => {
+      fail(
+        `WebSocket 连接失败：${url}\n`
+        + '常见原因：① python run.py 未运行或已崩溃 ② 地址/端口不对 ③ 应用页与后端不是同一 host'
+      );
+    };
+    ws.onclose = (ev) => {
+      if (settled) return;
+      fail(
+        `WebSocket 被关闭 (code=${ev.code})：${url}\n`
+        + '请查看运行 python run.py 的终端是否有报错'
+      );
+    };
   });
 }
 
