@@ -18,10 +18,13 @@ def asr_handler():
     创建 ASRHandler 并 mock 掉 whisper.load_model。
     mock model 的 transcribe() 返回固定文本 "测试语音"。
     """
-    with patch("whisper.load_model") as mock_load:
+    with patch("backend.asr.handler._load_model") as mock_load:
         mock_model = MagicMock()
-        mock_model.transcribe.return_value = {"text": "测试语音"}
-        mock_load.return_value = mock_model
+        # faster-whisper 返回 (segments, info)，segments 是可迭代对象
+        mock_segment = MagicMock()
+        mock_segment.text = "测试语音"
+        mock_model.transcribe.return_value = ([mock_segment], None)
+        mock_load.return_value = (mock_model, "faster-whisper")
 
         from backend.asr.handler import ASRHandler
         handler = ASRHandler(model_size="base", language="zh")
@@ -56,8 +59,8 @@ class TestVAD:
 
     def test_speech_then_silence_flushes(self, asr_handler):
         """
-        发送足够多的静音块（> SILENCE_END_SEC）触发 _flush()。
-        SILENCE_END_SEC=1.2，每块 100ms → 需要 ≥ 12 个静音块。
+        发送足够多的静音块触发 _flush()。
+        自适应 VAD：8块语音(0.8s) < 1s 边界 → 用短阈值 0.6s → 需 ≥ 6 个静音块。
         """
         done = threading.Event()
         asr_handler.on_utterance = lambda text: done.set()
@@ -66,8 +69,8 @@ class TestVAD:
         for _ in range(8):
             asr_handler.process_audio_chunk(LOUD_CHUNK)
 
-        # 静音段（超过 SILENCE_END_SEC=1.2 → ≥ 13 块）
-        for _ in range(15):
+        # 静音段（超过 SILENCE_END_SHORT=0.6 → ≥ 7 块）
+        for _ in range(10):
             asr_handler.process_audio_chunk(SILENT_CHUNK)
 
         # 等转写线程完成（最多 3 秒）
@@ -183,7 +186,7 @@ class TestNonBlockingTranscription:
 
         def slow_transcribe(*args, **kwargs):
             block_event.wait(timeout=1.0)
-            return {"text": ""}
+            return ([], None)
 
         asr_handler.model.transcribe.side_effect = slow_transcribe
 

@@ -33,14 +33,35 @@ class Config:
     vlm_dedup_sec: float = 5.0          # 同类事件 VLM 去重窗口
 
     # ── TTS（3号负责调优）─────────────────────────────────────────────
-    tts_voice: str = "zh-CN-YunxiNeural"    # edge-tts 声音（3号选音色）
-    tts_rate: str = "+20%"                  # 语速（+20% 偏快，游戏场景）
+    # TTS 引擎选择：
+    #   "volcengine" — 火山引擎 seed-tts-2.0，国内服务器，首包 ~600ms
+    #   "edge-tts"   — 微软 Azure，免费无需 key，首包 ~1s
+    tts_engine: str = "volcengine"
+
+    # 火山引擎配置（tts_engine="volcengine" 时生效）
+    volc_api_key: str = "d1dca442-e60a-49a6-b296-fa6ae31fd04e"
+    volc_speaker: str = "zh_female_vv_uranus_bigtts"
+    volc_speed_ratio: float = 1.5
+
+    # edge-tts 配置（tts_engine="edge-tts" 时生效）
+    tts_voice: str = "zh-CN-XiaoxiaoNeural"  # edge-tts 声音（3号选音色）
+    tts_rate: str = "+50%"                  # 语速（+50% 快节奏，游戏场景）
+
     tts_inter_utterance_gap: float = 0.8    # 两条语音之间的间隔（秒）
     fast_hint_expire_sec: float = 2.0       # 快提示超时丢弃（秒）
 
     # ── ASR（5号负责调优）─────────────────────────────────────────────
     whisper_model: str = "base"
     whisper_language: str = "zh"
+    # ASR 引擎选择：
+    #   "faster-whisper" — 推荐，CTranslate2 加速，比 openai-whisper 快 4-6 倍
+    #   "openai-whisper" — 原版，无 GPU 依赖问题，兼容性好
+    asr_engine: str = "faster-whisper"
+    # ASR 推理设备（仅 faster-whisper 生效）：
+    #   "auto" — 有 CUDA 用 GPU，否则 CPU
+    #   "cuda" — 强制 GPU（需要 nvidia-cublas-cu12）
+    #   "cpu"  — 强制 CPU（int8 量化，仍比 openai-whisper 快）
+    asr_device: str = "cuda"
     vad_silence_threshold: int = 300        # 振幅静音阈值（0~32768），需实测
     vad_speech_min_sec: float = 0.5         # 最短有效语音，过滤误触
     vad_silence_end_sec: float = 1.2        # 静音多久判定说话结束

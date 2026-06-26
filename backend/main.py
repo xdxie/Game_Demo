@@ -95,10 +95,18 @@ class GameSession:
         self.conv_hist  = ConversationHistory()
         self.fast_hist  = FastHistory()
 
-        self.tts_engine  = TTSEngine(voice=cfg.tts_voice, rate=cfg.tts_rate)
+        self.tts_engine  = TTSEngine(
+            engine=cfg.tts_engine,
+            voice=cfg.tts_voice, rate=cfg.tts_rate,
+            volc_api_key=cfg.volc_api_key,
+            volc_speaker=cfg.volc_speaker,
+            volc_speed_ratio=cfg.volc_speed_ratio,
+        )
         self.asr_handler = ASRHandler(
             model_size=cfg.whisper_model,
             language=cfg.whisper_language,
+            engine=cfg.asr_engine,
+            device=cfg.asr_device,
         )
         self.tts_queue = TTSQueue(
             tts_engine=self.tts_engine,
