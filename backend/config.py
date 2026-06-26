@@ -43,7 +43,7 @@ class Config:
     # ── 慢系统：VLM（4号负责调优）────────────────────────────────────
     vlm_provider: str = "openai"          # openai | anthropic | mock
     vlm_api_base: str = "https://yunwu.ai/v1"
-    vlm_api_key: str = ""                 # 优先读环境变量 VLM_API_KEY
+    vlm_api_key: str = "sk-rDl2CSNC6PhNFcfnI2jGH7UGnORAhSmgXkgBfAq7cAz2rqKS"
     vlm_model: str = "gemini-3.1-flash-lite:stable"
     vlm_api_timeout_sec: float = 60.0
     vlm_max_tokens: int = 120
@@ -75,7 +75,7 @@ class Config:
     asr_device: str = "cuda"                # auto | cuda | cpu（仅 faster-whisper）
     whisper_model: str = "base"
     whisper_language: str = "zh"
-    vad_silence_threshold: int = 75          # 振幅门限（需在真实环境下校准）
+    vad_silence_threshold: int = 300         # 振幅门限（需在真实环境下校准）
     vad_speech_min_sec: float = 0.35        # 最短有效语音（秒）
     vad_silence_end_sec: float = 0.9        # 长句静音多久判定说话结束
     vad_silence_end_short_sec: float = 0.6  # 短句静音判定（自适应 VAD）

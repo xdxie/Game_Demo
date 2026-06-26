@@ -214,9 +214,14 @@ class GameSession:
         self.cfg = cfg
         self._ws_clients = _ws_clients
 
-        # Fix 11：FrameBuffer 接收前端推帧
-        self.frame_buffer = FrameBuffer()
+        self._main_loop_task: Optional[asyncio.Task] = None
+        self._running = False
+        self._analysis_paused = False
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._pcm_chunk_count = 0
+        self._video_frame_count = 0
 
+        self.frame_buffer = FrameBuffer()
         self.nitrogen = create_nitrogen_client(cfg)
         self.action_filter = ActionFilter(
             confidence_threshold=cfg.fast_trigger_confidence,
@@ -239,7 +244,6 @@ class GameSession:
             engine=cfg.tts_engine,
             voice=cfg.tts_voice,
             rate=cfg.tts_rate,
-            synthesis_timeout=cfg.tts_synthesis_timeout_sec,
             volc_api_key=cfg.volc_api_key,
             volc_speaker=cfg.volc_speaker,
             volc_speed_ratio=cfg.volc_speed_ratio,
@@ -306,13 +310,6 @@ class GameSession:
             on_interrupt=self._on_tts_interrupt,
         )
         self.asr_handler.on_utterance = self._on_user_utterance
-
-        self._main_loop_task: Optional[asyncio.Task] = None
-        self._running = False
-        self._analysis_paused = False
-        self._loop: Optional[asyncio.AbstractEventLoop] = None
-        self._pcm_chunk_count = 0
-        self._video_frame_count = 0
 
     def _actions_timeline_text(self, t_sec: float) -> str:
         return self.action_timeline.summary_near(t_sec)

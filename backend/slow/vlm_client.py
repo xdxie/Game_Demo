@@ -14,7 +14,6 @@ import base64
 import io
 import logging
 
-import anthropic
 from PIL import Image
 
 from backend.fast.event import GameEvent
@@ -68,6 +67,7 @@ async def call_vlm(
     messages = conversation_history + [current_turn]
 
     # ── 调用 API ─────────────────────────────────────────────────────
+    import anthropic
     client = anthropic.AsyncAnthropic()
     response = await client.messages.create(
         model=model,

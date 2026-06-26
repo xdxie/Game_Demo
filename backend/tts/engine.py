@@ -89,7 +89,14 @@ class TTSEngine:
         except Exception as e:
             logger.warning("Preload failed for '%s': %s", text, e)
 
-    def speak_async(self, text: str, on_complete: Optional[Callable] = None):
+    def speak_async(
+        self,
+        text: str,
+        on_complete: Optional[Callable] = None,
+        is_cancelled: Optional[Callable[[], bool]] = None,
+        on_dispatched: Optional[Callable[[float], None]] = None,
+        on_error: Optional[Callable] = None,
+    ):
         """异步合成并发送，不阻塞调用方。"""
         self._stop_flag.clear()
         if self._completion_timer:
@@ -98,7 +105,7 @@ class TTSEngine:
 
         threading.Thread(
             target=self._speak_thread,
-            args=(text, on_complete),
+            args=(text, on_complete, is_cancelled, on_dispatched, on_error),
             daemon=True,
             name="tts-speak",
         ).start()
@@ -112,8 +119,18 @@ class TTSEngine:
 
     # ── 内部实现 ──────────────────────────────────────────────────────
 
-    def _speak_thread(self, text: str, on_complete: Optional[Callable]):
+    def _speak_thread(
+        self,
+        text: str,
+        on_complete: Optional[Callable],
+        is_cancelled: Optional[Callable[[], bool]] = None,
+        on_dispatched: Optional[Callable[[float], None]] = None,
+        on_error: Optional[Callable] = None,
+    ):
         try:
+            if is_cancelled and is_cancelled():
+                return
+
             if text in self._cache:
                 audio_data = self._cache[text]
                 if self.on_audio_data:
@@ -128,21 +145,28 @@ class TTSEngine:
                 )
         except Exception as e:
             logger.error("TTS synthesis error: %s", e)
-            if on_complete:
+            if on_error:
+                on_error()
+            elif on_complete:
                 on_complete()
             return
 
-        if self._stop_flag.is_set():
+        if self._stop_flag.is_set() or (is_cancelled and is_cancelled()):
             return
 
         if not audio_data:
-            if on_complete:
+            if on_error:
+                on_error()
+            elif on_complete:
                 on_complete()
             return
 
-        if on_complete:
-            duration = self._estimate_duration(audio_data)
-            logger.debug("TTS estimated duration: %.2fs for '%s'", duration, text[:20])
+        duration = self._estimate_duration(audio_data)
+        logger.debug("TTS estimated duration: %.2fs for '%s'", duration, text[:20])
+
+        if on_dispatched:
+            on_dispatched(duration)
+        elif on_complete:
             self._completion_timer = threading.Timer(duration, on_complete)
             self._completion_timer.start()
 

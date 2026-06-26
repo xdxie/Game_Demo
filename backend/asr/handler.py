@@ -113,6 +113,7 @@ class ASRHandler:
         self.SILENCE_END_SHORT = vad_silence_end_short_sec
         self.SILENCE_END_LONG  = vad_silence_end_sec
         self.ADAPTIVE_BOUNDARY = vad_adaptive_boundary_sec
+        self.MAX_SPEECH_SEC    = vad_max_speech_sec
         self.TTS_MUTE_TAIL_SEC = tts_mute_tail_sec
 
         if whisper_model is not None:
@@ -241,6 +242,14 @@ class ASRHandler:
             self._silence_frames = 0
             self._speech_frames += 1
             self._audio_buffer.append(audio_bytes)
+
+            # 最大语音时长限制，防止背景噪声导致无限录音
+            max_frames = int(self.MAX_SPEECH_SEC * chunks_per_sec)
+            if self._speech_frames >= max_frames:
+                logger.warning("ASR max speech reached (%.1fs), force flush",
+                               self.MAX_SPEECH_SEC)
+                self._flush()
+                self._reset_vad()
 
         elif self._speaking:
             self._silence_frames += 1

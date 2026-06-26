@@ -90,7 +90,6 @@ async def _warmup_async(cfg: Config):
             engine=cfg.tts_engine,
             voice=cfg.tts_voice,
             rate=cfg.tts_rate,
-            synthesis_timeout=cfg.tts_synthesis_timeout_sec,
             volc_api_key=cfg.volc_api_key,
             volc_speaker=cfg.volc_speaker,
             volc_speed_ratio=cfg.volc_speed_ratio,
@@ -98,7 +97,7 @@ async def _warmup_async(cfg: Config):
         tasks = []
         if _whisper_model is None:
             tasks.append(loop.run_in_executor(None, _load_whisper_blocking, cfg))
-        tasks.append(engine.preload_async())
+        tasks.append(loop.run_in_executor(None, engine.preload))
         await asyncio.gather(*tasks)
 
         with _lock:

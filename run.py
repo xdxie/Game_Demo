@@ -82,6 +82,9 @@ if __name__ == "__main__":
             "未检测到 websockets/wsproto：/ws 将返回 404。"
             "请执行: pip install \"uvicorn[standard]\" websockets"
         )
+    print("\n" + "=" * 50)
+    print("  请在浏览器打开: http://localhost:8000")
+    print("=" * 50 + "\n")
     uvicorn.run(
         "backend.main:app",
         host="0.0.0.0",
