@@ -64,9 +64,15 @@ async def call_vlm(
     model: str | None = None,
     max_tokens: int | None = None,
     cfg: Config | None = None,
+    include_nitrogen: bool | None = None,
 ) -> str:
     cfg = cfg or get_config()
     provider = vlm_provider(cfg)
+    nitrogen = (
+        include_nitrogen
+        if include_nitrogen is not None
+        else cfg.vlm_nitrogen_input
+    )
     logger.info(
         "VLM route: provider=%s model=%s event=%s",
         provider, cfg.vlm_model, event.type.value,
@@ -79,6 +85,7 @@ async def call_vlm(
             user_question,
             actions_timeline_text=actions_timeline_text,
             delay_sec=cfg.vlm_mock_delay_sec,
+            include_nitrogen=nitrogen,
         )
 
     if provider == "openai":
@@ -91,6 +98,7 @@ async def call_vlm(
             user_question=user_question,
             conversation_history=conversation_history,
             cfg=cfg,
+            include_nitrogen=nitrogen,
         )
 
     return await vlm_client.call_vlm(
@@ -103,4 +111,5 @@ async def call_vlm(
         conversation_history=conversation_history,
         model=model or cfg.vlm_model,
         max_tokens=max_tokens or cfg.vlm_max_tokens,
+        include_nitrogen=nitrogen,
     )

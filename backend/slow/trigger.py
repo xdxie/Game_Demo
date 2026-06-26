@@ -44,6 +44,7 @@ class VLMRequestManager:
         vlm_dedup_sec: float = 5.0,
         on_busy_change: Optional[Callable[[bool], None]] = None,
         min_busy_display_sec: float = 0.45,
+        vlm_nitrogen_input: bool = False,
     ):
         self._tts       = tts_queue
         self._ctx       = context_buffer
@@ -56,6 +57,7 @@ class VLMRequestManager:
         self._vlm_dedup_sec = vlm_dedup_sec
         self._on_busy_change = on_busy_change
         self._min_busy_display_sec = min_busy_display_sec
+        self._vlm_nitrogen_input = vlm_nitrogen_input
 
         self._current_task: Optional[asyncio.Task] = None
         self._pending: Optional[dict] = None
@@ -134,19 +136,26 @@ class VLMRequestManager:
             is_user_q = (event.type == EventType.USER_QUESTION)
 
             actions_text = ""
-            if self._get_actions_timeline_text:
+            if self._vlm_nitrogen_input and self._get_actions_timeline_text:
                 actions_text = self._get_actions_timeline_text(event.timestamp)
+
+            ctx_snapshot = (
+                args["ctx_snapshot"]
+                if self._vlm_nitrogen_input
+                else ""
+            )
 
             text = await call_vlm(
                 event=event,
                 frame=args["frame"],
-                ctx_summary=args["ctx_snapshot"],
+                ctx_summary=ctx_snapshot,
                 last_fast_text=args["fast_recent"],
                 actions_timeline_text=actions_text,
                 user_question=event.user_text if is_user_q else "",
                 conversation_history=args["conv_messages"],
                 model=self._model,
                 max_tokens=self._max_tokens,
+                include_nitrogen=self._vlm_nitrogen_input,
             )
 
             if not self._is_seek_generation_valid(args.get("utterance_seek_gen")):

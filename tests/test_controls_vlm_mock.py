@@ -36,4 +36,10 @@ def test_vlm_mock_user_question():
     text = asyncio.run(call_vlm_mock(
         event, "现在该怎么开", actions_timeline_text="关键动作时间线", delay_sec=0,
     ))
-    assert "现在该怎么开" in text or "收到" in text
+    assert "现在该怎么开" in text
+    assert "转向" not in text
+
+    text_n = asyncio.run(call_vlm_mock(
+        event, "现在该怎么开", delay_sec=0, include_nitrogen=True,
+    ))
+    assert "转向" in text_n

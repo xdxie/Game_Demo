@@ -248,6 +248,7 @@ class GameSession:
             get_actions_timeline_text=self._actions_timeline_text,
             vlm_dedup_sec=cfg.vlm_dedup_sec,
             on_busy_change=self._on_vlm_busy_change,
+            vlm_nitrogen_input=cfg.vlm_nitrogen_input,
         )
 
         self.tts_queue.set_callbacks(

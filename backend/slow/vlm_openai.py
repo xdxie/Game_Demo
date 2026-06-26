@@ -11,7 +11,7 @@ from PIL import Image
 
 from backend.config import Config, get_config
 from backend.fast.event import GameEvent
-from backend.slow.vlm_prompt import SYSTEM_PROMPT, build_user_text
+from backend.slow.vlm_prompt import system_prompt, build_user_text
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +67,7 @@ async def call_vlm_openai(
     user_question: str = "",
     conversation_history: list[dict] | None = None,
     cfg: Config | None = None,
+    include_nitrogen: bool = False,
 ) -> str:
     cfg = cfg or get_config()
     api_key = (cfg.vlm_api_key or "").strip()
@@ -77,6 +78,7 @@ async def call_vlm_openai(
     url = f"{base}/chat/completions"
     user_text = build_user_text(
         event, ctx_summary, last_fast_text, actions_timeline_text, user_question,
+        include_nitrogen=include_nitrogen,
     )
     messages = _openai_messages(user_text, frame, conversation_history)
 
@@ -84,7 +86,7 @@ async def call_vlm_openai(
         "model": cfg.vlm_model,
         "max_tokens": cfg.vlm_max_tokens,
         "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt(include_nitrogen)},
             *messages,
         ],
     }

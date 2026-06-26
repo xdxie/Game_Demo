@@ -18,7 +18,7 @@ import anthropic
 from PIL import Image
 
 from backend.fast.event import GameEvent
-from backend.slow.vlm_prompt import SYSTEM_PROMPT, build_user_text
+from backend.slow.vlm_prompt import system_prompt, build_user_text
 
 
 def _pil_to_base64(img: Image.Image, max_size: int = 512) -> str:
@@ -40,6 +40,7 @@ async def call_vlm(
     conversation_history: list[dict] | None = None,
     model: str = "claude-sonnet-4-6",
     max_tokens: int = 120,
+    include_nitrogen: bool = False,
 ) -> str:
     """调用 Claude API，返回语音教练回答文本。"""
     if conversation_history is None:
@@ -47,6 +48,7 @@ async def call_vlm(
 
     user_text = build_user_text(
         event, ctx_summary, last_fast_text, actions_timeline_text, user_question,
+        include_nitrogen=include_nitrogen,
     )
     img_b64 = _pil_to_base64(frame)
     current_turn = {
@@ -70,7 +72,7 @@ async def call_vlm(
     response = await client.messages.create(
         model=model,
         max_tokens=max_tokens,
-        system=SYSTEM_PROMPT,
+        system=system_prompt(include_nitrogen),
         messages=messages,
     )
 

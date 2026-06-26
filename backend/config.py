@@ -41,6 +41,7 @@ class Config:
     context_window_sec: float = 15.0    # 上下文缓冲区时间窗口
     slow_max_queue_age: float = 8.0     # 慢系统 TTS 结果有效期（秒）
     vlm_dedup_sec: float = 5.0          # 同类事件 VLM 去重窗口
+    vlm_nitrogen_input: bool = False    # 暂不把 NitroGen 操控/时间线注入 VLM
 
     # ── TTS（3号负责调优）─────────────────────────────────────────────
     tts_voice: str = "zh-CN-YunxiNeural"    # edge-tts 声音（3号选音色）
@@ -116,6 +117,10 @@ def _apply_env(cfg: Config) -> None:
     barge = _env_bool("BARGE_IN")
     if barge is not None:
         cfg.barge_in_enabled = barge
+
+    nit_in = _env_bool("VLM_NITROGEN_INPUT")
+    if nit_in is not None:
+        cfg.vlm_nitrogen_input = nit_in
 
 
 def get_config() -> Config:
