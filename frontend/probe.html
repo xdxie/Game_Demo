@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>E2E 链路探针 · 陪玩</title>
+  <link rel="stylesheet" href="/static/probe.css" />
+</head>
+<body>
+  <div id="probe-app">
+    <header>
+      <h1>E2E 链路探针</h1>
+      <p class="subtitle">在浏览器中逐步验证 HTTP → WebSocket → 推帧 → TTS 握手是否通畅</p>
+      <div class="actions">
+        <button id="btn-run" class="btn btn-primary">▶ 运行全部探针</button>
+        <button id="btn-stop-session" class="btn" disabled>停止探针会话</button>
+        <a href="/" class="btn">返回主应用</a>
+      </div>
+    </header>
+
+    <section id="summary" class="summary idle">
+      <span id="summary-text">尚未运行</span>
+    </section>
+
+    <section id="steps-panel">
+      <h2>探针步骤</h2>
+      <ol id="steps-list"></ol>
+    </section>
+
+    <section id="log-panel">
+      <h2>运行日志</h2>
+      <pre id="log-output"></pre>
+    </section>
+  </div>
+
+  <canvas id="probe-canvas" width="256" height="256" hidden></canvas>
+  <script src="/static/probe.js"></script>
+</body>
+</html>

@@ -6,7 +6,6 @@
 import sys
 import os
 
-# 确保从 demo/ 根目录能找到 backend 包
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import numpy as np
@@ -17,30 +16,20 @@ from backend.nitrogen.parser import PerceptionSignal
 from backend.fast.event import EventType, GameEvent
 
 
-# ── NitroGen chunk 构造辅助 ───────────────────────────────────────────
-
 def make_chunk(
     attack: float = 0.0,
     dodge: float  = 0.0,
     jx: float     = 0.0,
     jy: float     = 0.0,
 ) -> dict:
-    """
-    构造一个符合 NitroGen 输出格式的 chunk。
-    attack / dodge: 对应语义组的按钮激活值（0~1）
-    jx / jy: 左摇杆分量（-1~1）
-    """
     buttons = np.zeros((16, 21), dtype=np.float32)
     j_left  = np.zeros((16, 2),  dtype=np.float32)
 
-    # parser.py 中定义的按钮分组
-    # ATTACK_BUTTONS = EAST(5) SOUTH(18) RIGHT_TRIGGER(16)
     if attack > 0:
         buttons[:, 5]  = attack
         buttons[:, 18] = attack
         buttons[:, 16] = attack
 
-    # DODGE_BUTTONS = LEFT_TRIGGER(9) LEFT_SHOULDER(7) RIGHT_SHOULDER(14)
     if dodge > 0:
         buttons[:, 9]  = dodge
         buttons[:, 7]  = dodge
@@ -62,7 +51,6 @@ def make_signal(
     direction: str | None = None,
     magnitude: float = 0.0,
 ) -> PerceptionSignal:
-    """快速构造 PerceptionSignal（用于 ActionFilter 测试）"""
     return PerceptionSignal(
         primary_intent=intent,
         confidence=confidence,
@@ -79,7 +67,6 @@ def make_event(
     fast:      bool = True,
     slow:      bool = False,
 ) -> GameEvent:
-    """快速构造 GameEvent"""
     if signal is None:
         signal = make_signal("DODGE", 0.9)
     return GameEvent(
@@ -91,20 +78,36 @@ def make_event(
     )
 
 
-# ── TTSEngine / ASRHandler mock fixtures ─────────────────────────────
+@pytest.fixture(autouse=True)
+def _stub_warmup(monkeypatch):
+    """避免单元测试加载真实 Whisper / TTS 预热。"""
+    from unittest.mock import AsyncMock
+    import backend.warmup as warmup_mod
+
+    monkeypatch.setattr(warmup_mod, "get_whisper_model", lambda cfg=None: MagicMock())
+    monkeypatch.setattr(warmup_mod, "get_tts_cache", lambda: {})
+    monkeypatch.setattr(warmup_mod, "ensure_warmup", AsyncMock())
+    monkeypatch.setattr(warmup_mod, "get_status", lambda: {
+        "status": "ready", "whisper_ready": True, "tts_ready": True, "error": None,
+    })
+
 
 @pytest.fixture
 def mock_tts_engine():
     """
-    同步调用 on_complete 的 TTSEngine mock。
-    speak_async 会立即（同步）触发 on_complete，方便测试队列流转逻辑。
+    TTSEngine mock：speak_async 同步调用 on_dispatched（模拟音频已发出）。
+    播放完成需测试显式调用 queue.on_client_tts_done(uid)。
     """
     engine = MagicMock()
     engine.on_audio_data = None
 
-    def _speak(text, on_complete=None):
-        if on_complete:
-            on_complete()
+    def _speak(text, is_cancelled=None, on_dispatched=None, on_error=None):
+        if is_cancelled and is_cancelled():
+            return
+        if engine.on_audio_data:
+            engine.on_audio_data(b"\xff\xfb" + b"\x00" * 64)
+        if on_dispatched and not (is_cancelled and is_cancelled()):
+            on_dispatched(0.5)
 
     engine.speak_async.side_effect = _speak
     return engine

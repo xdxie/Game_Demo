@@ -89,14 +89,18 @@ class ActionFilter:
             return None
 
         # 全局最小间隔检查（用户提问不受此限制）
-        if video_time - self._last_any_trigger < global_min_interval:
+        if (self._last_any_trigger != float('-inf')
+                and video_time >= self._last_any_trigger
+                and video_time - self._last_any_trigger < global_min_interval):
             self._prev_signal = signal
             return None
 
-        # 单类事件冷却检查
+        # 单类事件冷却检查（video_time < last 表示 seek 回退，不应用冷却）
         last = self._last_trigger.get(event.type, float('-inf'))
         cooldown = self.COOLDOWNS.get(event.type, 3.0)
-        if video_time - last < cooldown:
+        if (last != float('-inf')
+                and video_time >= last
+                and video_time - last < cooldown):
             self._prev_signal = signal
             return None
 
@@ -123,6 +127,13 @@ class ActionFilter:
                 signal: PerceptionSignal,
                 t: float) -> Optional[GameEvent]:
         prev = self._prev_signal
+
+        # ── 检测0：NitroGen / mock 动作突变（fast_api is_change）────────
+        if (signal.is_action_change
+                and signal.change_distance >= 0.05
+                and signal.confidence >= self.confidence_threshold * 0.7):
+            return self._make_event(EventType.MOVEMENT_SHIFT, t, signal,
+                                    fast=True, slow=False)
 
         # ── 检测1：突发闪避 ────────────────────────────────────────────
         # 条件：当前意图是 DODGE，置信度超阈值，且上一帧不是 DODGE（突变）

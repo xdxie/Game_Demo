@@ -1,4 +1,4 @@
-# NitroGen 游戏语音教练 Demo
+# NitroGen 陪玩 Demo
 
 基于 [NitroGen](https://github.com/MineDojo/NitroGen)（500M DiT 游戏 AI）+ Claude VLM 构建的实时游戏语音教练。
 用户导入游戏视频，系统自动播放并分析，通过语音提供操作提示和策略建议，用户可随时开口提问。
@@ -35,7 +35,10 @@ demo/
 │   │   ├── frame_buffer.py      # ★ 接收前端推帧，供 NitroGen 读取（Fix 11）
 │   │   └── frame_pipe.py        # 备用：cv2 本地读帧（当前未被主流程使用）
 │   ├── nitrogen/
-│   │   ├── client.py            # ZMQ 客户端，异步推理循环
+│   │   ├── client.py            # ZMQ 客户端（旧路径）
+│   │   ├── fast_api_client.py   # action_fast_system HTTP /predict
+│   │   ├── fast_api_parser.py   # JSON → PerceptionSignal + VLM 摘要
+│   │   ├── factory.py           # mock | fast_api | zmq 路由
 │   │   └── parser.py            # action chunk → PerceptionSignal
 │   ├── fast/
 │   │   ├── event.py             # GameEvent / EventType 数据结构
@@ -54,8 +57,11 @@ demo/
 │   ├── index.html               # 页面结构
 │   ├── style.css                # 暗色主题样式
 │   └── app.js                   # WebSocket 客户端，麦克风采集，对话面板
+├── action_fast_system/          # 远端 NitroGen FastAPI 客户端与样例输出
+│   ├── README.md                # SSH 隧道 + /predict 用法
+│   └── run_inference.py
 ├── scripts/
-│   └── serve.py                 # NitroGen ZMQ 推理服务（GPU 机器上运行）
+│   └── serve.py                 # NitroGen ZMQ 推理服务（旧路径，GPU 机器）
 ├── run.py                       # 快速启动脚本
 ├── requirements.txt             # 需额外安装的依赖
 ├── .env                         # API Key 和服务地址配置
@@ -82,7 +88,9 @@ requirements.txt 中额外安装的包：
 
 | 包 | 版本 | 用途 |
 |----|------|------|
-| pyzmq | 27.1.0 | NitroGen ZMQ 通信 |
+| fastapi + uvicorn[standard] | — | **必填**，含 websockets，否则 `/ws` 404 |
+| httpx | — | NitroGen fast_api HTTP 通信 |
+| pyzmq | 27.1.0 | NitroGen ZMQ 通信（旧路径） |
 | opencv-python | 4.13.0 | 视频处理工具（frame_pipe.py 备用） |
 | anthropic | 0.112.0 | Claude VLM API |
 | openai-whisper | 20250625 | 本地语音识别 |
@@ -92,23 +100,80 @@ requirements.txt 中额外安装的包：
 
 ### 配置 .env
 
+复制 `.env.example` 为项目根目录（与 `run.py` 同级）的 `.env`：
+
 ```
-ANTHROPIC_API_KEY=sk-ant-xxxxx   # 必填
-NITROGEN_SERVER=tcp://localhost:5555   # NitroGen 服务地址，远程改为 tcp://<ip>:5555
+# VLM（yunwu / Gemini）
+VLM_MOCK=0
+VLM_API_KEY=your-key
+VLM_API_BASE=https://yunwu.ai/v1
+VLM_MODEL=gemini-3.1-flash-lite:stable
+
+# NitroGen（默认 mock，仅前端闭环）
+NITROGEN_MOCK=1
+FAST_TTS=0
+
+# 实机快系统（推荐 action_fast_system HTTP）：
+# NITROGEN_MOCK=0
+# NITROGEN_BACKEND=fast_api
+# NITROGEN_FAST_API_URL=http://localhost:8000
+
+# 旧 ZMQ 路径：
+# NITROGEN_BACKEND=zmq
+# NITROGEN_SERVER=tcp://localhost:5555
+
+# 可选：把快系统提示注入 VLM（默认关）
+# VLM_NITROGEN_INPUT=1
 ```
 
 ---
 
 ## 启动方式
 
-### Step 1：启动 NitroGen 推理服务（GPU 机器，Linux）
+### 仅测前端（默认，无需 NitroGen GPU）
 
 ```bash
-# 在安装了 NitroGen 的 GPU 环境中
+python run.py
+```
+
+默认 `NITROGEN_MOCK=1`：帧扫描后生成 **关键动作时间线 JSON**（见 [ACTIONS_TIMELINE.md](ACTIONS_TIMELINE.md)），作为 VLM 输入之一。
+
+**VLM（yunwu / Gemini）** 在 `.env` 配置（勿提交密钥）：
+
+```
+VLM_MOCK=0
+VLM_API_KEY=your-key
+VLM_API_BASE=https://yunwu.ai/v1
+VLM_MODEL=gemini-3.1-flash-lite:stable
+```
+
+VLM **非常驻**：仅在用户提问或慢事件时调用；录音时只跑 ASR。
+
+1. 探针：http://localhost:8000/probe → 运行全部（应 **10 步全绿**）
+2. 主应用：http://localhost:8000 → 选视频 → 开始分析 → 右侧调试面板应看到 intent/confidence 变化
+
+### Step 1（可选）：接上实机 NitroGen 快系统
+
+**推荐：action_fast_system（远端 FastAPI）**
+
+1. 按 [action_fast_system/README.md](action_fast_system/README.md) 在 GPU 机器上确认服务已启动，并在本机建立 SSH 隧道（本地 `8000` → 远端 FastAPI）。
+2. `.env` 配置：
+   ```
+   NITROGEN_MOCK=0
+   NITROGEN_BACKEND=fast_api
+   NITROGEN_FAST_API_URL=http://localhost:8000
+   NITROGEN_FAST_API_FPS=2.5
+   ```
+3. `python run.py` 终端应出现 `NitroGen: fast_api → http://localhost:8000`。
+
+**旧路径：ZMQ serve（GPU 机器，Linux）**
+
+```bash
+# .env: NITROGEN_MOCK=0, NITROGEN_BACKEND=zmq
 python scripts/serve.py /path/to/nitrogen.pt --port 5555 --ctx 1
 ```
 
-> 如果 NitroGen 在远程机器上，修改 `.env` 中 `NITROGEN_SERVER=tcp://<remote_ip>:5555`
+> 远程 ZMQ：`NITROGEN_SERVER=tcp://<remote_ip>:5555`
 
 ### Step 2：启动后端服务（本机，Windows）
 
@@ -120,6 +185,47 @@ python run.py
 
 等价命令：`uvicorn backend.main:app --host 0.0.0.0 --port 8000`
 
+#### Windows 常见启动错误：Whisper 包装错
+
+若 `python run.py` 报错类似：
+
+```
+File "...site-packages\whisper.py", line 69 ...
+TypeError: argument of type 'NoneType' is not iterable
+```
+
+说明安装了 **错误的** PyPI 包 `whisper`，而不是本项目需要的 **`openai-whisper`**。
+
+```powershell
+pip uninstall whisper -y
+pip install openai-whisper
+```
+
+验证（应输出 `...\site-packages\whisper\__init__.py`，而不是单个 `whisper.py`）：
+
+```powershell
+python -c "import whisper; print(whisper.__file__); print(hasattr(whisper,'load_model'))"
+```
+
+#### WebSocket 连接失败：`GET /ws` 404 / `No supported WebSocket library`
+
+若终端出现：
+
+```
+WARNING: No supported WebSocket library detected. Please use "pip install 'uvicorn[standard]'"
+INFO: ... "GET /ws HTTP/1.1" 404 Not Found
+```
+
+说明 **未安装 WebSocket 依赖**，探针和主应用的 WebSocket 都会失败。执行：
+
+```powershell
+pip install "uvicorn[standard]" websockets
+# 或
+pip install -r requirements.txt
+```
+
+安装后 **Ctrl+C 重启** `python run.py`，再跑探针。
+
 ### Step 3：打开前端页面
 
 浏览器访问：`http://localhost:8000`
@@ -129,6 +235,10 @@ python run.py
 3. 浏览器请求麦克风权限，允许后系统开始持续收音
 4. 视频播放时，AI 语音提示会通过**浏览器扬声器**自动播报
 5. 随时开口说话即可提问
+
+**旁观模式**：主页面开始分析后，访问 `http://localhost:8000/?mode=observer` 可只读查看对话与调试信号（不推帧、不收音）。
+
+**E2E 链路探针**：访问 `http://localhost:8000/probe` 在浏览器中自动验证 HTTP → WebSocket → 推帧 → TTS 握手。详细说明见 **[PROBE.md](PROBE.md)**。
 
 ---
 
@@ -261,9 +371,9 @@ TTS_MUTE_TAIL_SEC = 0.2   # TTS 结束后额外静默，消除回声尾音
 
 `backend/main.py` 中 `_session` 是全局变量，只支持单个会话。多人同时访问会互相覆盖。Demo 场景够用，正式部署需要会话隔离。
 
-**10. TTS 播放完成时序精度**
+**10. TTS 播放完成时序**
 
-`TTSEngine` 通过 pydub 估算 MP3 时长（+300ms 缓冲）来触发 `on_complete`，估算值与前端实际播放完成时刻之间仍有偏差（网络抖动、浏览器解码延迟等）。前端发送的 `tts_done` 消息目前未被后端响应（仅作记录），若需精确联动可将其接入 `_on_complete` 流程。
+播放完成以**前端 `tts_done`（带 `utterance_id`）为主路径**，后端 fallback 定时器（估算时长 + `tts_done_fallback_margin`）兜底。MP3 通过 `0x03 + utterance_id` 二进制帧与字幕关联，消除 JSON/MP3 乱序问题。
 
 ---
 

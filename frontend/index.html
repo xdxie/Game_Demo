@@ -3,14 +3,20 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>NitroGen 游戏语音教练</title>
+  <title>陪玩</title>
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
   <div id="app">
 
     <header id="header">
-      <span class="title">NitroGen 游戏语音教练</span>
+      <div class="header-left">
+        <span class="title">陪玩</span>
+        <nav class="header-nav" aria-label="快捷入口">
+          <a href="/probe" class="header-nav-link" title="E2E 链路探针">探针</a>
+          <a href="?mode=observer" id="link-observer" class="header-nav-link" title="只读旁观">旁观</a>
+        </nav>
+      </div>
       <div id="status-bar">
         <span class="dot" id="dot-nitrogen" title="NitroGen 推理状态">NitroGen</span>
         <span class="dot" id="dot-vlm"      title="VLM 处理状态">VLM</span>
@@ -30,7 +36,12 @@
         </div>
 
         <div id="video-player-area" style="display:none">
-          <video id="video-player" controls></video>
+          <p id="prepare-status" class="prepare-status" hidden></p>
+          <video id="video-player" controls playsinline></video>
+          <label class="video-audio-toggle">
+            <input type="checkbox" id="chk-video-audio" />
+            开启游戏原声（关闭可改善麦克风收音）
+          </label>
           <div id="video-controls">
             <button id="btn-start-analysis" class="btn btn-primary">▶ 开始分析</button>
             <button id="btn-stop-analysis"  class="btn btn-danger"   style="display:none">■ 停止</button>
@@ -62,6 +73,18 @@
           <span id="dbg-dir">—</span>
         </div>
         <div class="debug-row">
+          <span class="label">摇杆 X</span>
+          <span id="dbg-steer">—</span>
+          <span class="label">右扳机</span>
+          <span id="dbg-throttle">—</span>
+          <span class="label">左扳机</span>
+          <span id="dbg-brake">—</span>
+        </div>
+        <div class="debug-row">
+          <span class="label">动作摘要</span>
+          <span id="dbg-hint">—</span>
+        </div>
+        <div class="debug-row">
           <span class="label">预测序列</span>
           <span id="dbg-horizon">—</span>
         </div>
@@ -77,6 +100,6 @@
   <!-- Fix 11：隐藏的帧捕获 canvas，256×256 与 NitroGen 输入尺寸一致 -->
   <canvas id="capture-canvas" width="256" height="256" style="display:none"></canvas>
 
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v=20250625-live"></script>
 </body>
 </html>

@@ -272,4 +272,16 @@ class TestReset:
         p(af, make_signal("DODGE", 0.9), 0.0)
         af.reset()
         result = p(af, make_signal("DODGE", 0.9), 10.0)
-        assert True  # 不崩溃即通过
+        assert result is not None
+
+    def test_backward_seek_allows_trigger(self, af):
+        """seek 回退后视频时钟小于上次触发时间，不应被冷却错误阻挡"""
+        p(af, make_signal("WAIT", 0.9), 0.0)
+        fired = p(af, make_signal("DODGE", 0.9), 95.0)
+        assert fired is not None
+
+        af.reset()
+        af._prev_signal = make_signal("WAIT", 0.9)
+        after_seek = af.process(make_signal("DODGE", 0.9), 11.0)
+        assert after_seek is not None
+        assert after_seek.type == EventType.SUDDEN_DODGE

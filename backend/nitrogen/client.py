@@ -31,6 +31,8 @@ class NitroGenClient:
       - RCVTIMEO=2000ms，超时后重连
     """
 
+    is_mock = False
+
     RECONNECT_DELAY = 2.0   # 超时后等待多久重连
 
     def __init__(self, server_addr: str = "tcp://localhost:5555",
@@ -43,6 +45,7 @@ class NitroGenClient:
         self._lock   = threading.Lock()
 
         self._latest_signal: Optional[PerceptionSignal] = None
+        self._signal_generation = 0
         self._signal_lock = threading.Lock()
 
         self._running = False
@@ -87,6 +90,12 @@ class NitroGenClient:
         with self._signal_lock:
             return self._latest_signal
 
+    def clear_signal(self):
+        """seek 时清空旧感知信号，并使进行中的推理结果失效"""
+        with self._signal_lock:
+            self._latest_signal = None
+            self._signal_generation += 1
+
     # ── 内部推理循环 ──────────────────────────────────────────────────
 
     def _connect(self):
@@ -108,6 +117,8 @@ class NitroGenClient:
                 continue
 
             try:
+                with self._signal_lock:
+                    gen_at_start = self._signal_generation
                 payload = pickle.dumps({"type": "predict", "image": frame})
                 self._socket.send(payload)
                 raw = self._socket.recv()
@@ -117,7 +128,8 @@ class NitroGenClient:
                 signal = parse_chunk(chunk, self.btn_threshold)
 
                 with self._signal_lock:
-                    self._latest_signal = signal
+                    if gen_at_start == self._signal_generation:
+                        self._latest_signal = signal
 
                 self.inference_count += 1
 

@@ -96,29 +96,49 @@ class ASRHandler:
         language: str = "zh",
         engine: str = "faster-whisper",
         device: str = "auto",
+        vad_silence_threshold: int = 75,
+        vad_speech_min_sec: float = 0.5,
+        vad_silence_end_sec: float = 1.0,
+        vad_silence_end_short_sec: float = 0.6,
+        vad_adaptive_boundary_sec: float = 1.0,
+        vad_max_speech_sec: float = 8.0,
+        tts_mute_tail_sec: float = 0.2,
+        barge_in_enabled: bool = True,
+        barge_in_threshold_mult: float = 1.35,
+        whisper_model=None,
+        asr_engine_type: str | None = None,
     ):
-        """
-        Args:
-            model_size: Whisper 模型大小（base / small / medium）
-            language:   识别语言
-            engine:     "faster-whisper" 或 "openai-whisper"
-            device:     "auto" / "cuda" / "cpu"（仅 faster-whisper 生效）
-        """
-        self.model, self._engine_type = _load_model(model_size, engine, device)
+        self.SILENCE_THRESHOLD = vad_silence_threshold
+        self.SPEECH_MIN_SEC    = vad_speech_min_sec
+        self.SILENCE_END_SHORT = vad_silence_end_short_sec
+        self.SILENCE_END_LONG  = vad_silence_end_sec
+        self.ADAPTIVE_BOUNDARY = vad_adaptive_boundary_sec
+        self.TTS_MUTE_TAIL_SEC = tts_mute_tail_sec
+
+        if whisper_model is not None:
+            self.model = whisper_model
+            self._engine_type = asr_engine_type or engine
+            logger.info("ASR using pre-warmed model (%s)", self._engine_type)
+        else:
+            self.model, self._engine_type = _load_model(model_size, engine, device)
         self.language = language
 
-        # 识别完成回调：callable(text: str)
-        self.on_utterance: Optional[Callable[[str], None]] = None
+        self.on_utterance: Optional[Callable] = None
+        self.on_state_change: Optional[Callable[[str], None]] = None
+        self.on_barge_in: Optional[Callable[[], bool]] = None
+        self.is_tts_playing: Optional[Callable[[], bool]] = None
 
-        # TTS 联动状态
         self._muted = False
+        self._seek_generation = 0
 
-        # VAD 状态（仅在 WebSocket 线程中访问，无需锁）
+        # VAD 状态
         self._speaking       = False
         self._audio_buffer:  list[bytes] = []
         self._speech_frames  = 0
         self._silence_frames = 0
-        self._chunk_samples  = 1600         # 每帧样本数，由 process_audio_chunk 更新
+        self._chunk_samples  = 1600
+
+        self._unmute_timer: Optional[threading.Timer] = None
 
         # Fix 13：独立转写线程 + 队列
         # 队列中存放 float32 numpy array，None 为停止信号
@@ -136,20 +156,52 @@ class ASRHandler:
         """TTSQueue 开始播报时调用"""
         self._muted = True
         self._reset_vad()
+        self._emit_state()
         logger.debug("ASR muted")
 
     def unmute(self):
         """TTSQueue 播报结束时调用（含 TTS_MUTE_TAIL_SEC 延迟）"""
-        threading.Timer(self.TTS_MUTE_TAIL_SEC, self._do_unmute).start()
+        if self._unmute_timer:
+            self._unmute_timer.cancel()
+        self._unmute_timer = threading.Timer(self.TTS_MUTE_TAIL_SEC, self._do_unmute)
+        self._unmute_timer.start()
 
     def force_unmute(self):
         """视频 seek 时调用，跳过 tail delay 直接 unmute"""
+        if self._unmute_timer:
+            self._unmute_timer.cancel()
+            self._unmute_timer = None
         self._muted = False
+        self._emit_state()
         logger.debug("ASR force unmuted")
 
     def _do_unmute(self):
         self._muted = False
+        self._emit_state()
         logger.debug("ASR unmuted")
+
+    @property
+    def seek_generation(self) -> int:
+        return self._seek_generation
+
+    @property
+    def activity_state(self) -> str:
+        if self._muted:
+            return "muted"
+        if self._speaking:
+            return "recording"
+        return "listening"
+
+    def _emit_state(self):
+        if self.on_state_change:
+            self.on_state_change(self.activity_state)
+
+    def reset_for_seek(self):
+        """seek 时重置 VAD 状态并递增 generation"""
+        self._seek_generation += 1
+        self._reset_vad()
+        self._muted = False
+        self._emit_state()
 
     # ── 音频处理接口 ──────────────────────────────────────────────────
 
@@ -264,7 +316,7 @@ class ASRHandler:
 
                 logger.info("ASR result: %s", text)
                 if text and self.on_utterance:
-                    self.on_utterance(text)
+                    self.on_utterance(text, self._seek_generation)
             except Exception as e:
                 logger.error("Whisper transcribe error: %s", e)
 

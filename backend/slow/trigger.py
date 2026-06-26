@@ -8,10 +8,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Callable, Optional
 
 from backend.fast.event import EventType, GameEvent
-from backend.slow.vlm_client import call_vlm
+from backend.slow.vlm_factory import call_vlm
 
 if TYPE_CHECKING:
     from PIL import Image
@@ -31,8 +31,6 @@ class VLMRequestManager:
       其他事件          → SLOW_ADVICE  (中)
     """
 
-    VLM_DEDUP_SEC = 5.0   # 同类事件去重窗口（秒）
-
     def __init__(
         self,
         tts_queue: "TTSQueue",
@@ -41,6 +39,13 @@ class VLMRequestManager:
         conversation_history: "ConversationHistory",
         vlm_model: str = "claude-sonnet-4-6",
         vlm_max_tokens: int = 120,
+        get_seek_generation: Optional[Callable[[], int]] = None,
+        get_actions_timeline_text: Optional[Callable[[float], str]] = None,
+        vlm_dedup_sec: float = 5.0,
+        on_busy_change: Optional[Callable[[bool], None]] = None,
+        on_user_error: Optional[Callable[[str], None]] = None,
+        min_busy_display_sec: float = 0.45,
+        vlm_nitrogen_input: bool = False,
     ):
         self._tts       = tts_queue
         self._ctx       = context_buffer
@@ -48,6 +53,13 @@ class VLMRequestManager:
         self._conv_hist = conversation_history
         self._model     = vlm_model
         self._max_tokens = vlm_max_tokens
+        self._get_seek_generation = get_seek_generation
+        self._get_actions_timeline_text = get_actions_timeline_text
+        self._vlm_dedup_sec = vlm_dedup_sec
+        self._on_busy_change = on_busy_change
+        self._on_user_error = on_user_error
+        self._min_busy_display_sec = min_busy_display_sec
+        self._vlm_nitrogen_input = vlm_nitrogen_input
 
         self._current_task: Optional[asyncio.Task] = None
         self._pending: Optional[dict] = None
@@ -55,9 +67,21 @@ class VLMRequestManager:
         self._last_event_type:  Optional[EventType] = None
         self._last_submit_time: float = 0.0
 
-    async def submit(self, event: GameEvent, frame: "Image.Image"):
+    async def submit(
+        self,
+        event: GameEvent,
+        frame: "Image.Image",
+        utterance_seek_gen: int | None = None,
+    ):
         """提交 VLM 请求（非阻塞，立即返回）"""
         from backend.tts.queue import Priority
+
+        if not self._is_seek_generation_valid(utterance_seek_gen):
+            logger.debug(
+                "VLM submit discarded (stale after seek): %s",
+                event.type.value,
+            )
+            return
 
         priority  = self._event_to_priority(event)
         is_user_q = (event.type == EventType.USER_QUESTION)
@@ -66,7 +90,7 @@ class VLMRequestManager:
         # ── 去重（用户提问不去重）────────────────────────────────────
         if (not is_user_q
                 and event.type == self._last_event_type
-                and now - self._last_submit_time < self.VLM_DEDUP_SEC):
+                and now - self._last_submit_time < self._vlm_dedup_sec):
             logger.debug("VLM dedup skip: %s", event.type.value)
             return
 
@@ -87,11 +111,13 @@ class VLMRequestManager:
             "ctx_snapshot":  self._ctx.summarize(),
             "fast_recent":   self._fast_hist.get_recent_summary(event.timestamp),
             "conv_messages": self._conv_hist.to_messages() if is_user_q else [],
+            "utterance_seek_gen": utterance_seek_gen,
         }
 
         # ── 提交 ──────────────────────────────────────────────────────
         if self._current_task is None or self._current_task.done():
             self._current_task = asyncio.create_task(self._run(task_args))
+            self._notify_busy(True)
         else:
             # 已有 in-flight：只保留优先级最高的 pending
             pending_pri = self._pending["priority"] if self._pending else 999
@@ -99,20 +125,47 @@ class VLMRequestManager:
                 self._pending = task_args
 
     async def _run(self, args: dict):
+        busy_since = time.time()
         try:
+            if not self._is_seek_generation_valid(args.get("utterance_seek_gen")):
+                logger.debug(
+                    "VLM run discarded (stale after seek): %s",
+                    args["event"].type.value,
+                )
+                return
+
             event    = args["event"]
             is_user_q = (event.type == EventType.USER_QUESTION)
+
+            actions_text = ""
+            if self._vlm_nitrogen_input and self._get_actions_timeline_text:
+                actions_text = self._get_actions_timeline_text(event.timestamp)
+
+            ctx_snapshot = (
+                args["ctx_snapshot"]
+                if self._vlm_nitrogen_input
+                else ""
+            )
 
             text = await call_vlm(
                 event=event,
                 frame=args["frame"],
-                ctx_summary=args["ctx_snapshot"],
+                ctx_summary=ctx_snapshot,
                 last_fast_text=args["fast_recent"],
+                actions_timeline_text=actions_text,
                 user_question=event.user_text if is_user_q else "",
                 conversation_history=args["conv_messages"],
                 model=self._model,
                 max_tokens=self._max_tokens,
+                include_nitrogen=self._vlm_nitrogen_input,
             )
+
+            if not self._is_seek_generation_valid(args.get("utterance_seek_gen")):
+                logger.debug(
+                    "VLM result discarded (stale after seek): %s",
+                    event.type.value,
+                )
+                return
 
             self._last_event_type  = event.type
             self._last_submit_time = time.time()
@@ -129,13 +182,26 @@ class VLMRequestManager:
 
         except Exception as e:
             logger.error("VLM call failed: %s", e)
+            if args["event"].type == EventType.USER_QUESTION:
+                if self._on_user_error:
+                    try:
+                        self._on_user_error(f"VLM 调用失败: {e}")
+                    except Exception as cb_err:
+                        logger.error("VLM on_user_error callback failed: %s", cb_err)
+                self._tts.push("抱歉，我没听清，请再说一次。", args["priority"])
 
         finally:
-            # 处理 pending
             if self._pending:
                 pending = self._pending
                 self._pending = None
                 self._current_task = asyncio.create_task(self._run(pending))
+            else:
+                elapsed = time.time() - busy_since
+                remain = self._min_busy_display_sec - elapsed
+                if remain > 0:
+                    await asyncio.sleep(remain)
+                self._current_task = None
+                self._notify_busy(False)
 
     async def cancel_all(self):
         """视频 seek 时调用：取消所有在途请求"""
@@ -146,6 +212,24 @@ class VLMRequestManager:
             except (asyncio.CancelledError, asyncio.TimeoutError):
                 pass
         self._pending = None
+        self._current_task = None
+        self._last_event_type = None
+        self._last_submit_time = 0.0
+        self._notify_busy(False)
+
+    def _notify_busy(self, busy: bool):
+        if self._on_busy_change:
+            try:
+                self._on_busy_change(busy)
+            except Exception as e:
+                logger.error("VLM on_busy_change error: %s", e)
+
+    def _is_seek_generation_valid(self, utterance_seek_gen: int | None) -> bool:
+        if utterance_seek_gen is None:
+            return True
+        if self._get_seek_generation is None:
+            return True
+        return utterance_seek_gen == self._get_seek_generation()
 
     @staticmethod
     def _event_to_priority(event: GameEvent) -> "Priority":
