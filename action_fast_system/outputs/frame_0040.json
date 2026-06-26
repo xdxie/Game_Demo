@@ -1,0 +1,44 @@
+{
+  "frame_idx": 1,
+  "session_idx": 2,
+  "auto_reset": false,
+  "action_summary": {
+    "left_stick_mean": [
+      0.6364,
+      -0.0207
+    ],
+    "right_stick_mean": [
+      0.0002,
+      0.0003
+    ],
+    "left_stick_std": [
+      0.3058,
+      0.0096
+    ],
+    "right_stick_std": [
+      0.0018,
+      0.0017
+    ],
+    "buttons_avg_pressed": [
+      "RIGHT_TRIGGER(1.00)"
+    ],
+    "trigger_means": {
+      "LEFT_TRIGGER": 0.0,
+      "RIGHT_TRIGGER": 1.0
+    },
+    "chunk_length": 18
+  },
+  "is_change": false,
+  "change_info": {
+    "mode": "computed",
+    "distance": 0.3847,
+    "threshold": 0.7,
+    "per_group_distance": {
+      "left_stick": 0.3847,
+      "right_stick": 0.0008,
+      "trigger": 0.0,
+      "discrete_buttons": 0.0
+    },
+    "history_size_used": 1
+  }
+}
