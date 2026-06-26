@@ -196,13 +196,13 @@ class TestTTSPriorityIntegration:
         """
         speak_order = []
 
-        def slow_speak(text, on_complete=None):
+        def slow_speak(text, on_dispatched=None, on_error=None):
             speak_order.append(text)
-            # 不立即完成，模拟长时间播放
 
         mock_tts_engine.speak_async.side_effect = slow_speak
 
-        q = TTSQueue(mock_tts_engine, mock_asr_handler, inter_gap=0.0)
+        q = TTSQueue(mock_tts_engine, mock_asr_handler,
+                     inter_gap=0.0, fallback_margin=0.0)
         q.push("慢通道建议", Priority.SLOW_ADVICE)   # 开始播放慢通道
         assert speak_order == ["慢通道建议"]
 
@@ -218,14 +218,15 @@ class TestTTSPriorityIntegration:
 
         spoken_texts = []
 
-        def record(text, on_complete=None):
+        def record(text, on_dispatched=None, on_error=None):
             spoken_texts.append(text)
-            if on_complete:
-                on_complete()
+            if on_dispatched:
+                on_dispatched(0.1)
 
         mock_tts_engine.speak_async.side_effect = record
 
-        q = TTSQueue(mock_tts_engine, mock_asr_handler, inter_gap=0.0)
+        q = TTSQueue(mock_tts_engine, mock_asr_handler,
+                     inter_gap=0.0, fallback_margin=0.0)
         q._is_speaking = True  # 阻止立即播放
 
         # 手动推入一个已过期的快提示

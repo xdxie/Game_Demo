@@ -99,11 +99,17 @@ class GameSession:
         self.asr_handler = ASRHandler(
             model_size=cfg.whisper_model,
             language=cfg.whisper_language,
+            vad_silence_threshold=cfg.vad_silence_threshold,
+            vad_speech_min_sec=cfg.vad_speech_min_sec,
+            vad_silence_end_sec=cfg.vad_silence_end_sec,
+            tts_mute_tail_sec=cfg.tts_mute_tail_sec,
         )
+        self.asr_handler.on_state_change = self._on_asr_state_change
         self.tts_queue = TTSQueue(
             tts_engine=self.tts_engine,
             asr_handler=self.asr_handler,
             inter_gap=cfg.tts_inter_utterance_gap,
+            fallback_margin=cfg.tts_done_fallback_margin,
             broadcast_audio=self._broadcast_tts_audio,   # Fix 14
         )
         self.vlm_manager = VLMRequestManager(
@@ -118,6 +124,7 @@ class GameSession:
         self.tts_queue.set_callbacks(
             on_start=self._on_tts_start,
             on_end=self._on_tts_end,
+            on_interrupt=self._on_tts_interrupt,
         )
         self.asr_handler.on_utterance = self._on_user_utterance
 
@@ -271,15 +278,31 @@ class GameSession:
 
     # ── TTS 回调 ──────────────────────────────────────────────────────
 
-    def _on_tts_start(self, text: str, channel: str):
-        """TTS 开始播报 → 广播 JSON 事件（供前端更新 UI）"""
+    def _on_asr_state_change(self, state: str):
+        asyncio.run_coroutine_threadsafe(
+            self._broadcast({"type": "asr_state", "state": state}),
+            asyncio.get_event_loop(),
+        )
+
+    def _on_tts_start(self, text: str, channel: str, utterance_id: int):
+        """TTS 开始播报 → 广播 JSON 事件（供前端更新 UI，在 MP3 之前）"""
         asyncio.run_coroutine_threadsafe(
             self._broadcast({
-                "type":       "tts",
-                "channel":    channel,
-                "text":       text,
-                "video_time": round(self.frame_buffer.video_position, 2),
-                "playing":    True,
+                "type":          "tts",
+                "utterance_id":  utterance_id,
+                "channel":       channel,
+                "text":          text,
+                "video_time":    round(self.frame_buffer.video_position, 2),
+                "playing":       True,
+            }),
+            asyncio.get_event_loop(),
+        )
+
+    def _on_tts_interrupt(self, utterance_id: int):
+        asyncio.run_coroutine_threadsafe(
+            self._broadcast({
+                "type":         "tts_interrupt",
+                "utterance_id": utterance_id,
             }),
             asyncio.get_event_loop(),
         )
@@ -425,6 +448,11 @@ async def websocket_endpoint(ws: WebSocket):
 
                     elif mtype == "video_ended" and _session:
                         await _session._broadcast({"type": "video_ended"})
+
+                    elif mtype == "tts_done" and _session:
+                        uid = int(data.get("utterance_id", -1))
+                        if uid >= 0:
+                            _session.tts_queue.on_client_tts_done(uid)
 
                 except Exception as e:
                     logger.error("WS JSON error: %s", e)

@@ -12,7 +12,9 @@
  * Fix 14：TTS 音频由后端发送 MP3 bytes，前端用 Audio API 播放
  *   - ws.binaryType = 'arraybuffer'
  *   - 服务端→客户端 binary = MP3 bytes（直接播放）
- *   - 播放结束后发送 {"type":"tts_done"} 通知后端（可选，后端已有定时 fallback）
+ *   - 播放结束后发送 {"type":"tts_done","utterance_id":N} 精确完成信号
+ *   - 收到 tts_interrupt 时立即停止当前音频
+ *   - 收到 asr_state 更新麦克风状态指示
  *
  * 二进制协议（客户端 → 服务端）：
  *   byte[0]=0x01  PCM 音频（麦克风）
@@ -31,6 +33,9 @@ let mediaStream   = null;
 let audioProcessor = null;
 let captureInterval = null;     // Fix 11：帧捕获定时器
 let currentTTSAudio = null;     // Fix 14：当前播放的 Audio 元素
+let currentUtteranceId = null;  // 当前播报 utterance_id（与 tts_done 关联）
+let pendingUtteranceId = null;  // 已收到 tts JSON、等待 MP3 的 id
+let playingMsgEl      = null;   // 正在播报的气泡元素
 let isSeeking     = false;
 let seekDebounce  = null;
 
@@ -147,8 +152,9 @@ function handleServerMessage(msg) {
   switch (msg.type) {
 
     case 'tts':
-      addChatMessage(msg.channel, msg.text, msg.video_time);
-      if (msg.playing) {
+      addChatMessage(msg.channel, msg.text, msg.video_time, msg.utterance_id);
+      if (msg.playing && msg.utterance_id != null) {
+        pendingUtteranceId = msg.utterance_id;
         ttsStatus.textContent = `▶ ${channelLabel(msg.channel)}: "${truncate(msg.text, 20)}"`;
       }
       if (msg.channel === 'user') {
@@ -156,10 +162,21 @@ function handleServerMessage(msg) {
       }
       break;
 
+    case 'tts_interrupt':
+      if (msg.utterance_id == null
+          || currentUtteranceId === msg.utterance_id
+          || pendingUtteranceId === msg.utterance_id) {
+        stopTTSAudio();
+      }
+      break;
+
     case 'tts_end':
       ttsStatus.textContent = '🔇 待机';
-      micStatus.textContent = '🎤 持续收音中';
-      micStatus.className   = '';
+      clearPlayingHighlight();
+      break;
+
+    case 'asr_state':
+      updateMicStatus(msg.state);
       break;
 
     case 'perception':
@@ -242,13 +259,11 @@ videoPlayer.addEventListener('seeking', () => {
 videoPlayer.addEventListener('pause', () => {
   if (ws && ws.readyState === WebSocket.OPEN)
     ws.send(JSON.stringify({ type: 'playback', action: 'pause' }));
-  micStatus.textContent = '🎤 已暂停';
 });
 
 videoPlayer.addEventListener('play', () => {
   if (ws && ws.readyState === WebSocket.OPEN)
     ws.send(JSON.stringify({ type: 'playback', action: 'resume' }));
-  micStatus.textContent = '🎤 持续收音中';
 });
 
 videoPlayer.addEventListener('ended', () => {
@@ -258,12 +273,23 @@ videoPlayer.addEventListener('ended', () => {
 
 // ── Fix 14：TTS 音频播放 ──────────────────────────────────────────────
 
-function playTTSAudio(arrayBuffer) {
-  // 停止之前的音频（如果有）
+function stopTTSAudio() {
   if (currentTTSAudio) {
     currentTTSAudio.pause();
+    currentTTSAudio.src = '';
     currentTTSAudio = null;
   }
+  currentUtteranceId = null;
+  pendingUtteranceId = null;
+  clearPlayingHighlight();
+}
+
+function playTTSAudio(arrayBuffer) {
+  stopTTSAudio();
+
+  const utteranceId = pendingUtteranceId;
+  pendingUtteranceId = null;
+  currentUtteranceId = utteranceId;
 
   const blob = new Blob([arrayBuffer], { type: 'audio/mpeg' });
   const url  = URL.createObjectURL(blob);
@@ -272,23 +298,35 @@ function playTTSAudio(arrayBuffer) {
   audio.onended = () => {
     URL.revokeObjectURL(url);
     currentTTSAudio = null;
-    // 通知后端播放完毕（后端已有定时 fallback，此消息是精确信号）
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'tts_done' }));
+    if (ws && ws.readyState === WebSocket.OPEN && utteranceId != null) {
+      ws.send(JSON.stringify({ type: 'tts_done', utterance_id: utteranceId }));
     }
+    currentUtteranceId = null;
+    clearPlayingHighlight();
   };
 
   audio.onerror = () => {
     URL.revokeObjectURL(url);
     currentTTSAudio = null;
+    if (ws && ws.readyState === WebSocket.OPEN && utteranceId != null) {
+      ws.send(JSON.stringify({ type: 'tts_done', utterance_id: utteranceId }));
+    }
+    currentUtteranceId = null;
+    clearPlayingHighlight();
   };
 
   audio.play().catch(err => {
     console.warn('TTS audio play error (may need user gesture):', err);
     URL.revokeObjectURL(url);
+    if (ws && ws.readyState === WebSocket.OPEN && utteranceId != null) {
+      ws.send(JSON.stringify({ type: 'tts_done', utterance_id: utteranceId }));
+    }
+    currentUtteranceId = null;
+    clearPlayingHighlight();
   });
 
   currentTTSAudio = audio;
+  highlightPlayingMessage(utteranceId);
 }
 
 // ── 麦克风采集（Web Audio API）────────────────────────────────────────
@@ -340,22 +378,55 @@ function float32ToPCM16(float32) {
 }
 
 // ── 对话面板 ──────────────────────────────────────────────────────────
-function addChatMessage(channel, text, videoTime) {
+function addChatMessage(channel, text, videoTime, utteranceId) {
   const placeholder = chatMessages.querySelector('.chat-placeholder');
   if (placeholder) placeholder.remove();
 
   const timeStr = videoTime != null ? formatTime(videoTime) : '';
   const el = document.createElement('div');
-  el.className = `msg ${channel}`;
+  el.className = `msg ${channel === 'user_answer' ? 'answer' : channel}`;
+  if (utteranceId != null) {
+    el.dataset.utteranceId = String(utteranceId);
+  }
   el.innerHTML = `
     <div class="msg-header">
-      <span class="msg-tag ${channel}">${channelLabel(channel)}</span>
+      <span class="msg-tag ${channel === 'user_answer' ? 'answer' : channel}">${channelLabel(channel)}</span>
       <span>${timeStr}</span>
     </div>
     <div class="msg-body">${escapeHtml(text)}</div>
   `;
   chatMessages.appendChild(el);
   chatMessages.scrollTop = chatMessages.scrollHeight;
+  return el;
+}
+
+function highlightPlayingMessage(utteranceId) {
+  clearPlayingHighlight();
+  if (utteranceId == null) return;
+  const el = chatMessages.querySelector(`[data-utterance-id="${utteranceId}"]`);
+  if (el) {
+    el.classList.add('playing');
+    playingMsgEl = el;
+  }
+}
+
+function clearPlayingHighlight() {
+  if (playingMsgEl) {
+    playingMsgEl.classList.remove('playing');
+    playingMsgEl = null;
+  }
+}
+
+function updateMicStatus(state) {
+  const labels = {
+    listening:  ['🎤 持续收音中', ''],
+    recording:  ['🎤● 正在说话', 'recording'],
+    processing: ['🎤 识别中…', 'recording'],
+    muted:      ['🎤⊘ TTS 播报中', 'muted'],
+  };
+  const [text, cls] = labels[state] || ['🎤 持续收音中', ''];
+  micStatus.textContent = text;
+  micStatus.className   = cls;
 }
 
 function addSystemMsg(text) {
@@ -386,7 +457,7 @@ function escapeHtml(str) {
 
 function disconnectAll() {
   stopFrameCapture();
-  if (currentTTSAudio) { currentTTSAudio.pause(); currentTTSAudio = null; }
+  stopTTSAudio();
   if (ws)              { ws.close(); ws = null; }
   if (audioProcessor)  { audioProcessor.disconnect(); audioProcessor = null; }
   if (audioContext)    { audioContext.close(); audioContext = null; }

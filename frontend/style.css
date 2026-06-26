@@ -209,6 +209,11 @@ input[type="file"] { display: none; }
 .msg.user   .msg-body { border-color: var(--user); background: rgba(139,92,246,0.08); }
 .msg.answer .msg-body { border-color: var(--accent); }
 
+.msg.playing .msg-body {
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.35);
+  background: rgba(59, 130, 246, 0.08);
+}
+
 /* ── 调试面板 ───────────────────────────────────────────────────── */
 #debug-panel {
   flex-shrink: 0;

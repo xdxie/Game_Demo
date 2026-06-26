@@ -123,9 +123,7 @@ class TestMuteUnmute:
         asr_handler.mute()
         assert asr_handler._muted is True
         asr_handler.unmute()
-        # 立即检查：还在 muted 状态（延迟未到）
         assert asr_handler._muted is True
-        # 等延迟结束（TTS_MUTE_TAIL_SEC=0.2s，等 0.5s 确保完成）
         time.sleep(0.5)
         assert asr_handler._muted is False
 
@@ -135,6 +133,40 @@ class TestMuteUnmute:
         assert asr_handler._muted is True
         asr_handler.force_unmute()
         assert asr_handler._muted is False
+
+    def test_repeated_unmute_single_timer(self, asr_handler):
+        """多次 unmute 不叠加多个有效 timer"""
+        asr_handler.mute()
+        asr_handler.unmute()
+        asr_handler.unmute()
+        assert asr_handler._unmute_timer is not None
+        time.sleep(0.5)
+        assert asr_handler._muted is False
+
+    def test_force_unmute_cancels_pending_timer(self, asr_handler):
+        asr_handler.mute()
+        asr_handler.unmute()
+        assert asr_handler._unmute_timer is not None
+        asr_handler.force_unmute()
+        assert asr_handler._unmute_timer is None
+        assert asr_handler._muted is False
+
+
+class TestASRStateCallback:
+    def test_initial_state_listening(self, asr_handler):
+        assert asr_handler._last_emitted_state == "listening"
+
+    def test_mute_emits_muted(self, asr_handler):
+        states = []
+        asr_handler.on_state_change = states.append
+        asr_handler.mute()
+        assert "muted" in states
+
+    def test_recording_state_on_loud_chunk(self, asr_handler):
+        states = []
+        asr_handler.on_state_change = states.append
+        asr_handler.process_audio_chunk(LOUD_CHUNK)
+        assert "recording" in states
 
 
 # ═══════════════════════════════════════════════════════════════════════
