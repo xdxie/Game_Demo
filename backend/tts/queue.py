@@ -162,15 +162,13 @@ class TTSQueue:
             if item is None:
                 return
             self._is_speaking = True
-
-        self._utterance_id += 1
-        uid = self._utterance_id
-        self._pending_done_id = uid
-        self._completion_handled = False
-        self._current_item = item
-
-        self._speak_token += 1
-        token = self._speak_token
+            self._utterance_id += 1
+            uid = self._utterance_id
+            self._pending_done_id = uid
+            self._completion_handled = False
+            self._current_item = item
+            self._speak_token += 1
+            token = self._speak_token
 
         if self._asr:
             self._asr.mute()
@@ -237,9 +235,11 @@ class TTSQueue:
         threading.Timer(self._gap, self._speak_next).start()
 
     def _interrupt(self, notify: bool = True):
-        if notify and self._pending_done_id is not None and self._on_interrupt:
+        with self._lock:
+            interrupted_id = self._pending_done_id
+        if notify and interrupted_id is not None and self._on_interrupt:
             try:
-                self._on_interrupt(self._pending_done_id)
+                self._on_interrupt(interrupted_id)
             except Exception as e:
                 logger.error("TTS on_interrupt callback error: %s", e)
 

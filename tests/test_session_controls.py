@@ -59,6 +59,7 @@ def session():
 
 class TestGameSessionControls:
     def test_on_seek_resets_signal_and_time(self, session):
+        session._analysis_paused = True
         async def _run():
             await session.on_seek(42.5)
 
@@ -67,7 +68,17 @@ class TestGameSessionControls:
         session.asr_handler.reset_for_seek.assert_called_once()
         session.asr_handler.force_unmute.assert_called_once()
         session.tts_queue.clear_and_stop.assert_called_once()
+        session.vlm_manager.cancel_all.assert_called_once()
         assert session.frame_buffer.video_position == 42.5
+        assert session._analysis_paused is True
+
+    def test_on_seek_restores_analysis_running_after_seek(self, session):
+        session._analysis_paused = False
+        async def _run():
+            await session.on_seek(12.0)
+
+        asyncio.run(_run())
+        assert session._analysis_paused is False
 
     def test_on_pause_stops_tts_and_mutes_asr(self, session):
         async def _run():
@@ -76,6 +87,7 @@ class TestGameSessionControls:
         asyncio.run(_run())
         assert session._analysis_paused is True
         session.tts_queue.clear_and_stop.assert_called_once()
+        session.vlm_manager.cancel_all.assert_called_once()
         session.asr_handler.mute.assert_called_once()
 
     def test_on_resume_clears_analysis_paused(self, session):
@@ -108,6 +120,17 @@ class TestGameSessionControls:
         session._broadcast.assert_called_once()
         session.vlm_manager.submit.assert_called_once()
         assert session.vlm_manager.submit.call_args.kwargs["utterance_seek_gen"] == 1
+
+    def test_handle_user_utterance_skips_vlm_without_frame(self, session):
+        async def _run():
+            session.asr_handler.seek_generation = 1
+            session.frame_buffer.latest_frame = None
+            session.vlm_manager.submit = AsyncMock()
+            await session._handle_user_utterance("无画面问题", utterance_gen=1)
+
+        asyncio.run(_run())
+        session._broadcast.assert_called()
+        session.vlm_manager.submit.assert_not_called()
 
     def test_stop_force_unmutes_asr(self, session):
         async def _run():

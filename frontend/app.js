@@ -38,6 +38,7 @@ let pendingUtteranceId = null;  // 已收到 tts JSON、等待 MP3 的 id
 let playingMsgEl      = null;   // 正在播报的气泡元素
 let isSeeking     = false;
 let seekDebounce  = null;
+const dismissedUtteranceIds = new Set();
 
 // ── DOM 引用 ──────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
@@ -162,6 +163,7 @@ function handleServerMessage(msg) {
       break;
 
     case 'tts_interrupt':
+      dismissUtterance(msg.utterance_id);
       if (msg.utterance_id == null
           || currentUtteranceId === msg.utterance_id
           || pendingUtteranceId === msg.utterance_id) {
@@ -187,13 +189,16 @@ function handleServerMessage(msg) {
       dotNitrogen.className = 'dot active';
       break;
 
-    case 'status':
-      if (msg.state === 'started') dotNitrogen.className = 'dot loading';
-      break;
-
     case 'seek_done':
       isSeeking = false;
       stopTTSAudio();
+      break;
+
+    case 'status':
+      if (msg.state === 'started') dotNitrogen.className = 'dot loading';
+      if (msg.state === 'user_question_no_frame') {
+        addSystemMsg('画面未就绪，暂时无法回答，请稍后再问');
+      }
       break;
 
     case 'video_ended':
@@ -249,6 +254,8 @@ function captureAndSendFrame() {
 videoPlayer.addEventListener('seeking', () => {
   if (seekDebounce) clearTimeout(seekDebounce);
   seekDebounce = setTimeout(() => {
+    dismissUtterance(pendingUtteranceId);
+    dismissUtterance(currentUtteranceId);
     stopTTSAudio();
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: 'seek', time: videoPlayer.currentTime }));
@@ -286,6 +293,16 @@ function parseTTSBinaryFrame(arrayBuffer) {
   };
 }
 
+function dismissUtterance(utteranceId) {
+  if (utteranceId != null) dismissedUtteranceIds.add(utteranceId);
+}
+
+function sendTtsDone(utteranceId) {
+  if (ws && ws.readyState === WebSocket.OPEN && utteranceId != null) {
+    ws.send(JSON.stringify({ type: 'tts_done', utterance_id: utteranceId }));
+  }
+}
+
 function stopCurrentTTSAudio() {
   if (currentTTSAudio) {
     currentTTSAudio.pause();
@@ -305,6 +322,15 @@ function playTTSAudio(arrayBuffer, utteranceIdFromFrame) {
   const utteranceId = utteranceIdFromFrame ?? pendingUtteranceId;
   pendingUtteranceId = null;
 
+  if (isSeeking) {
+    sendTtsDone(utteranceId);
+    return;
+  }
+  if (utteranceId != null && dismissedUtteranceIds.has(utteranceId)) {
+    sendTtsDone(utteranceId);
+    return;
+  }
+
   stopCurrentTTSAudio();
   currentUtteranceId = utteranceId;
 
@@ -312,31 +338,21 @@ function playTTSAudio(arrayBuffer, utteranceIdFromFrame) {
   const url  = URL.createObjectURL(blob);
   const audio = new Audio(url);
 
-  const sendTtsDone = () => {
-    if (ws && ws.readyState === WebSocket.OPEN && utteranceId != null) {
-      ws.send(JSON.stringify({ type: 'tts_done', utterance_id: utteranceId }));
-    }
+  const onPlaybackEnd = () => {
+    URL.revokeObjectURL(url);
+    currentTTSAudio = null;
+    sendTtsDone(utteranceId);
     currentUtteranceId = null;
     clearPlayingHighlight();
   };
 
-  audio.onended = () => {
-    URL.revokeObjectURL(url);
-    currentTTSAudio = null;
-    sendTtsDone();
-  };
+  audio.onended = onPlaybackEnd;
 
-  audio.onerror = () => {
-    URL.revokeObjectURL(url);
-    currentTTSAudio = null;
-    sendTtsDone();
-  };
+  audio.onerror = onPlaybackEnd;
 
   audio.play().catch(err => {
     console.warn('TTS audio play error (may need user gesture):', err);
-    URL.revokeObjectURL(url);
-    currentTTSAudio = null;
-    sendTtsDone();
+    onPlaybackEnd();
   });
 
   currentTTSAudio = audio;
@@ -472,6 +488,7 @@ function escapeHtml(str) {
 function disconnectAll() {
   stopFrameCapture();
   stopTTSAudio();
+  dismissedUtteranceIds.clear();
   if (ws)              { ws.close(); ws = null; }
   if (audioProcessor)  { audioProcessor.disconnect(); audioProcessor = null; }
   if (audioContext)    { audioContext.close(); audioContext = null; }

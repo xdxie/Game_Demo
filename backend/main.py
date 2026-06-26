@@ -197,16 +197,17 @@ class GameSession:
 
     async def _handle_event(self, event: GameEvent):
         self.ctx_buffer.push_event(event.timestamp, event)
+        seek_gen = self.asr_handler.seek_generation
 
         if event.trigger_fast:
             text = render_fast(event)
             self.fast_hist.record(event.timestamp, text)
-            self.tts_queue.push(text, Priority.FAST_HINT)
+            if seek_gen == self.asr_handler.seek_generation:
+                self.tts_queue.push(text, Priority.FAST_HINT)
 
         if event.trigger_slow:
             frame = self.frame_buffer.latest_frame
             if frame is not None:
-                seek_gen = self.asr_handler.seek_generation
                 await self.vlm_manager.submit(
                     event, frame, utterance_seek_gen=seek_gen,
                 )
@@ -252,10 +253,18 @@ class GameSession:
             user_text=text,
         )
         frame = self.frame_buffer.latest_frame
-        if frame is not None:
-            await self.vlm_manager.submit(
-                event, frame, utterance_seek_gen=utterance_gen,
-            )
+        if frame is None:
+            logger.warning("User question skipped: no video frame available")
+            await self._broadcast({
+                "type":  "status",
+                "state": "user_question_no_frame",
+                "text":  text,
+            })
+            return
+
+        await self.vlm_manager.submit(
+            event, frame, utterance_seek_gen=utterance_gen,
+        )
 
     # ── 视频控制 ──────────────────────────────────────────────────────
 
@@ -268,26 +277,32 @@ class GameSession:
 
     async def on_seek(self, new_time: float):
         """前端拖动进度条"""
-        self.nitrogen.pause()
-        self.tts_queue.clear_and_stop()
-        self.asr_handler.reset_for_seek()
-        self.asr_handler.force_unmute()
-        await self.vlm_manager.cancel_all()
+        was_analysis_paused = self._analysis_paused
+        self._analysis_paused = True
+        try:
+            self.nitrogen.pause()
+            self.tts_queue.clear_and_stop()
+            self.asr_handler.reset_for_seek()
+            self.asr_handler.force_unmute()
+            await self.vlm_manager.cancel_all()
 
-        self.ctx_buffer.clear()
-        self.fast_hist.clear()
-        self.action_filter.reset()
-        self.nitrogen.clear_signal()
-        self.frame_buffer.seek(new_time)
+            self.ctx_buffer.clear()
+            self.fast_hist.clear()
+            self.action_filter.reset()
+            self.nitrogen.clear_signal()
+            self.frame_buffer.seek(new_time)
 
-        self.nitrogen.resume()
-        await self._broadcast({"type": "seek_done", "time": new_time})
+            self.nitrogen.resume()
+            await self._broadcast({"type": "seek_done", "time": new_time})
+        finally:
+            self._analysis_paused = was_analysis_paused
 
     async def on_pause(self):
         self._analysis_paused = True
         self.frame_buffer.pause()
         self.nitrogen.pause()
         self.tts_queue.clear_and_stop()
+        await self.vlm_manager.cancel_all()
         self.asr_handler.mute()
 
     async def on_resume(self):
