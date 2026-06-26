@@ -67,15 +67,16 @@ async def _warmup_async(cfg: Config):
         _error = None
 
     try:
-        if _whisper_model is None:
-            await loop.run_in_executor(None, _load_whisper_blocking, cfg)
-
         engine = TTSEngine(
             voice=cfg.tts_voice,
             rate=cfg.tts_rate,
             synthesis_timeout=cfg.tts_synthesis_timeout_sec,
         )
-        await engine.preload_async()
+        tasks = []
+        if _whisper_model is None:
+            tasks.append(loop.run_in_executor(None, _load_whisper_blocking, cfg))
+        tasks.append(engine.preload_async())
+        await asyncio.gather(*tasks)
 
         with _lock:
             _tts_cache.clear()

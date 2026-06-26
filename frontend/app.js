@@ -161,7 +161,12 @@ async function scanVideoForActionTimeline() {
       }),
     });
     const data = await r.json();
-    if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+    if (!r.ok && r.status !== 202) throw new Error(data.error || `HTTP ${r.status}`);
+
+    if (data.status === 'accepted' || data.building) {
+      pollActionTimelineReady().catch(() => {});
+      return;
+    }
 
     const prep = await fetch('/prepare/status').then(x => x.json()).catch(() => ({}));
     updatePrepareStatusLine(prep, data.key_actions);
@@ -172,6 +177,25 @@ async function scanVideoForActionTimeline() {
       prepareStatus.textContent = `动作时间线失败: ${err.message}`;
       prepareStatus.className = 'prepare-status error';
     }
+  }
+}
+
+async function pollActionTimelineReady(maxWaitMs = 120000) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < maxWaitMs) {
+    const r = await fetch('/actions/timeline');
+    if (r.status === 202) {
+      await new Promise(res => setTimeout(res, 500));
+      continue;
+    }
+    if (r.ok) {
+      const tl = await r.json();
+      const prep = await fetch('/prepare/status').then(x => x.json()).catch(() => ({}));
+      updatePrepareStatusLine(prep, (tl.key_actions || []).length);
+      console.log('Action timeline ready', tl);
+      return;
+    }
+    await new Promise(res => setTimeout(res, 500));
   }
 }
 
@@ -264,10 +288,13 @@ if (clientMode === 'player') {
     }
     const prevLabel = btnStart.textContent;
     btnStart.disabled = true;
-    btnStart.textContent = '预热中…';
+    btnStart.textContent = '启动中…';
     try {
-      await startBackendPrepare();
-      if (timelineScanPromise) await timelineScanPromise.catch(() => {});
+      const prepSt = await fetch('/prepare/status').then(r => r.json()).catch(() => ({}));
+      if (prepSt.status !== 'ready') {
+        btnStart.textContent = '预热中…';
+        await startBackendPrepare();
+      }
 
       const resp = await fetch('/start', { method: 'POST' });
       const raw = await resp.text();
@@ -307,11 +334,11 @@ if (clientMode === 'player') {
   btnStop.addEventListener('click', async () => {
     isAnalysisRunning = false;
     clearWsReconnectTimer();
-    await fetch('/stop', { method: 'POST' });
     disconnectAll();
     btnStart.style.display = '';
     btnStop.style.display  = 'none';
     addSystemMsg('分析已停止');
+    fetch('/stop', { method: 'POST' }).catch(() => {});
   });
 } else {
   initObserverMode();

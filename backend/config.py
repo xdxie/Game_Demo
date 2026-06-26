@@ -24,6 +24,7 @@ class Config:
     nitrogen_ssh_user: str = "root"
     nitrogen_ssh_remote_port: int = 8000
     nitrogen_ssh_key: str = ""           # 可选私钥路径
+    nitrogen_ssh_password: str = ""      # 可选密码（勿提交 .env）
     fast_tts_enabled: bool = True      # mock 模式下默认关闭，见 _apply_env
 
     # ── 快系统：动作过滤阈值（2号负责调优）────────────────────────────
@@ -133,6 +134,8 @@ def _apply_env(cfg: Config) -> None:
         cfg.nitrogen_ssh_remote_port = int(v)
     if v := os.getenv("NITROGEN_SSH_KEY"):
         cfg.nitrogen_ssh_key = v.strip()
+    if v := os.getenv("NITROGEN_SSH_PASSWORD"):
+        cfg.nitrogen_ssh_password = v
 
     if v := os.getenv("VLM_API_KEY"):
         cfg.vlm_api_key = v.strip()

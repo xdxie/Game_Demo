@@ -96,6 +96,7 @@ if FRONTEND_DIR.exists():
 
 _session: Optional["GameSession"] = None
 _action_timeline: Optional[ActionTimeline] = None
+_timeline_building: bool = False
 _ws_clients: list[WebSocket] = []
 _ws_roles: dict[WebSocket, str] = {}   # "player" | "observer"
 _primary_ws: Optional[WebSocket] = None
@@ -291,11 +292,10 @@ class GameSession:
     async def start(self):
         """启动推理与分析循环（不再需要打开视频文件）"""
         self._loop = asyncio.get_running_loop()
-        await warmup.ensure_warmup(self.cfg)
+        if warmup.get_status()["status"] != "ready":
+            await warmup.ensure_warmup(self.cfg)
         self.tts_engine._cache.update(warmup.get_tts_cache())
-        self.nitrogen.start(self.frame_buffer)   # Fix 11：传 FrameBuffer
-        if not self.tts_engine._cache:
-            await self.tts_engine.preload_async()
+        self.nitrogen.start(self.frame_buffer)
 
         self._running = True
         self._main_loop_task = asyncio.create_task(self._analysis_loop())
@@ -314,10 +314,17 @@ class GameSession:
         self._running = False
         if self._main_loop_task:
             self._main_loop_task.cancel()
-        await self.vlm_manager.cancel_all()
+            self._main_loop_task = None
         self.tts_queue.clear_and_stop()
-        self.asr_handler.force_unmute()
         self.nitrogen.stop()
+        self.asr_handler.force_unmute()
+        asyncio.create_task(self._stop_cleanup())
+
+    async def _stop_cleanup(self):
+        try:
+            await asyncio.wait_for(self.vlm_manager.cancel_all(), timeout=0.3)
+        except asyncio.TimeoutError:
+            logger.warning("VLM cancel timed out on stop")
         self.asr_handler.stop()
         logger.info("GameSession stopped")
 
@@ -704,6 +711,11 @@ class IngestBatchIn(BaseModel):
 async def get_actions_timeline():
     """返回当前视频的关键动作 JSON 时间线（mock 或帧扫描结果）。"""
     global _action_timeline
+    if _timeline_building:
+        return JSONResponse(
+            status_code=202,
+            content={"status": "building", "message": "动作时间线生成中"},
+        )
     if _action_timeline is None:
         return JSONResponse(
             status_code=404,
@@ -715,11 +727,12 @@ async def get_actions_timeline():
 @app.post("/actions/ingest-batch")
 async def ingest_action_frames(body: IngestBatchIn):
     """
-    前端从视频抽帧后批量提交 → mock NitroGen 预测 → 过滤关键动作 → JSON。
+    前端从视频抽帧后批量提交 → NitroGen 预测 → 过滤关键动作 → JSON。
+    立即返回 accepted，后台构建（避免阻塞「开始分析」）。
     """
     import base64
 
-    global _action_timeline
+    global _action_timeline, _timeline_building
     samples: list[tuple[float, bytes | None]] = []
     for fr in body.frames:
         jpeg = None
@@ -733,18 +746,42 @@ async def ingest_action_frames(body: IngestBatchIn):
                 jpeg = None
         samples.append((fr.t_sec, jpeg))
 
-    _action_timeline = build_timeline_from_samples(
-        samples,
-        duration_sec=body.duration_sec,
-        sample_interval_sec=body.sample_interval_sec,
-    )
-    if _session is not None:
-        _session.action_timeline = _action_timeline
+    if _timeline_building:
+        return {
+            "status": "building",
+            "frames": len(samples),
+            "building": True,
+        }
+
+    _timeline_building = True
+
+    def _build_sync():
+        global _action_timeline, _timeline_building
+        try:
+            timeline = build_timeline_from_samples(
+                samples,
+                duration_sec=body.duration_sec,
+                sample_interval_sec=body.sample_interval_sec,
+            )
+            _action_timeline = timeline
+            if _session is not None:
+                _session.action_timeline = timeline
+            logger.info(
+                "Action timeline ready: %d key actions",
+                len(timeline.key_actions),
+            )
+        except Exception:
+            logger.exception("Action timeline build failed")
+        finally:
+            _timeline_building = False
+
+    loop = asyncio.get_running_loop()
+    loop.run_in_executor(None, _build_sync)
 
     return {
-        "status": "ok",
-        "key_actions": len(_action_timeline.key_actions),
-        "timeline": _action_timeline.to_dict(),
+        "status": "accepted",
+        "frames": len(samples),
+        "building": True,
     }
 
 

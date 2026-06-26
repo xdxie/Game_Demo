@@ -38,3 +38,15 @@ def test_start_ssh_tunnel_reuses_open_port():
     cfg = SshTunnelConfig(enabled=True, local_port=8000)
     with patch("backend.nitrogen.ssh_tunnel.port_is_open", return_value=True):
         assert start_ssh_tunnel(cfg) is True
+
+
+def test_start_ssh_tunnel_with_password_uses_paramiko():
+    cfg = SshTunnelConfig(
+        enabled=True, local_port=18000, password="secret",
+    )
+    mock_tunnel = MagicMock()
+    with patch("backend.nitrogen.ssh_tunnel.port_is_open", return_value=False), \
+         patch("backend.nitrogen.ssh_tunnel._ParamikoTunnel", return_value=mock_tunnel), \
+         patch("backend.nitrogen.ssh_tunnel.wait_for_port", return_value=True):
+        assert start_ssh_tunnel(cfg) is True
+        mock_tunnel.start.assert_called_once()

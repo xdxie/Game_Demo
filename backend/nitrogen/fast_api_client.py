@@ -95,10 +95,11 @@ class FastApiNitroGenClient:
         self._frame_pipe = frame_pipe
         self._running = True
         if self.reset_on_start:
-            try:
-                self._post_reset()
-            except Exception as e:
-                logger.warning("FastAPI NitroGen /reset on start failed: %s", e)
+            threading.Thread(
+                target=self._reset_on_start_bg,
+                daemon=True,
+                name="nitrogen-fast-api-reset",
+            ).start()
         self._thread = threading.Thread(
             target=self._inference_loop,
             args=(frame_pipe,),
@@ -141,6 +142,12 @@ class FastApiNitroGenClient:
         if pipe is None or pipe.latest_frame is None:
             return
         self._predict_frame(pipe.latest_frame)
+
+    def _reset_on_start_bg(self) -> None:
+        try:
+            self._post_reset()
+        except Exception as e:
+            logger.warning("FastAPI NitroGen /reset on start failed: %s", e)
 
     def _post_reset(self) -> None:
         timeout = httpx.Timeout(15.0, connect=10.0)
