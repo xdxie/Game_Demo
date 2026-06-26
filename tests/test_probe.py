@@ -49,6 +49,8 @@ def client():
         cfg.fast_hint_expire_sec = 2.0
         cfg.slow_max_queue_age = 8.0
         cfg.vlm_dedup_sec = 5.0
+        cfg.vlm_mock = True
+        cfg.vlm_mock_delay_sec = 0.35
         cfg.global_tts_min_interval = 2.0
         mock_cfg.return_value = cfg
         mock_asr_cls.return_value = MagicMock()

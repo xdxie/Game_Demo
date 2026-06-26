@@ -65,6 +65,11 @@ class PerceptionSignal:
     raw_guard_score: float  = 0.0
     raw_joystick_mag: float = 0.0
 
+    # 简化操控语义（mock / 下游 VLM 用）：左右摇杆一维 + 油门/刹车 0/1
+    steer: float = 0.0      # [-1, 1]，负左正右
+    throttle: int = 0       # 0/1
+    brake: int = 0          # 0/1
+
 
 def parse_chunk(chunk: dict, btn_threshold: float = 0.5) -> PerceptionSignal:
     """
@@ -108,6 +113,10 @@ def parse_chunk(chunk: dict, btn_threshold: float = 0.5) -> PerceptionSignal:
                      for i in range(16)]
     horizon_sequence = _run_length_encode(frame_intents)
 
+    steer = float(np.clip(j_eff[:, 0].mean(), -1.0, 1.0))
+    throttle = 1 if float(b_eff[:, BTN["RIGHT_TRIGGER"]].mean()) >= btn_threshold else 0
+    brake = 1 if float(b_eff[:, BTN["LEFT_TRIGGER"]].mean()) >= btn_threshold else 0
+
     return PerceptionSignal(
         primary_intent=primary_intent,
         confidence=confidence,
@@ -118,6 +127,9 @@ def parse_chunk(chunk: dict, btn_threshold: float = 0.5) -> PerceptionSignal:
         raw_dodge_score=dodge_score,
         raw_guard_score=guard_score,
         raw_joystick_mag=joystick_mag,
+        steer=steer,
+        throttle=throttle,
+        brake=brake,
     )
 
 

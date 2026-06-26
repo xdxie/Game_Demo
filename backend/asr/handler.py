@@ -56,16 +56,21 @@ class ASRHandler:
         vad_speech_min_sec: float = 0.5,
         vad_silence_end_sec: float = 1.2,
         tts_mute_tail_sec: float = 0.2,
+        whisper_model=None,
     ):
         self.SILENCE_THRESHOLD = vad_silence_threshold
         self.SPEECH_MIN_SEC    = vad_speech_min_sec
         self.SILENCE_END_SEC   = vad_silence_end_sec
         self.TTS_MUTE_TAIL_SEC = tts_mute_tail_sec
 
-        logger.info("Loading Whisper model: %s ...", model_size)
-        self.model    = whisper.load_model(model_size)
+        if whisper_model is not None:
+            self.model = whisper_model
+            logger.info("ASR using pre-warmed Whisper model")
+        else:
+            logger.info("Loading Whisper model: %s ...", model_size)
+            self.model = whisper.load_model(model_size)
+            logger.info("Whisper loaded")
         self.language = language
-        logger.info("Whisper loaded")
 
         self.on_utterance: Optional[Callable[[str, int], None]] = None
         self.on_state_change: Optional[Callable[[str], None]] = None

@@ -59,6 +59,7 @@ const playerArea    = $('video-player-area');
 const btnStart      = $('btn-start-analysis');
 const btnStop       = $('btn-stop-analysis');
 const btnClearChat  = $('btn-clear-chat');
+const prepareStatus = $('prepare-status');
 const chatMessages  = $('chat-messages');
 const dotNitrogen   = $('dot-nitrogen');
 const dotVLM        = $('dot-vlm');
@@ -76,8 +77,41 @@ fileInput.addEventListener('change', e => {
   playerArea.style.display = 'flex';
 
   videoPlayer.src = URL.createObjectURL(file);
-  // Fix 11：视频加载后通过 WebSocket 发元数据，不再需要本地路径
+  startBackendPrepare();
 });
+
+/** 选视频后即预热 Whisper/TTS（VLM 仅在提问或慢事件时短时触发，非常驻） */
+async function startBackendPrepare() {
+  if (clientMode !== 'player') return;
+  prepareStatus.hidden = false;
+  prepareStatus.textContent = '正在后台加载 Whisper 与 TTS…';
+  prepareStatus.className = 'prepare-status loading';
+
+  try {
+    await fetch('/prepare', { method: 'POST' });
+    const deadline = Date.now() + 120000;
+    while (Date.now() < deadline) {
+      const r = await fetch('/prepare/status');
+      const st = await r.json();
+      if (st.status === 'ready') {
+        prepareStatus.textContent = `模型已就绪（VLM: ${st.vlm_mode || 'mock'}，事件触发）`;
+        prepareStatus.className = 'prepare-status ready';
+        return;
+      }
+      if (st.status === 'error') {
+        prepareStatus.textContent = `预热失败: ${st.error || '未知错误'}`;
+        prepareStatus.className = 'prepare-status error';
+        return;
+      }
+      await new Promise(res => setTimeout(res, 500));
+    }
+    prepareStatus.textContent = '预热超时，仍可点「开始分析」（将现场加载）';
+    prepareStatus.className = 'prepare-status error';
+  } catch (err) {
+    prepareStatus.textContent = `无法连接预热接口: ${err.message}`;
+    prepareStatus.className = 'prepare-status error';
+  }
+}
 
 // ── 开始/停止分析（player 模式）────────────────────────────────────────
 if (clientMode === 'player') {
@@ -291,6 +325,9 @@ function handleServerMessage(msg) {
       $('dbg-intent').textContent  = msg.intent;
       $('dbg-conf').textContent    = (msg.confidence * 100).toFixed(0) + '%';
       $('dbg-dir').textContent     = msg.direction || '无';
+      $('dbg-steer').textContent   = msg.steer != null ? msg.steer.toFixed(2) : '—';
+      $('dbg-throttle').textContent = msg.throttle != null ? String(msg.throttle) : '—';
+      $('dbg-brake').textContent   = msg.brake != null ? String(msg.brake) : '—';
       $('dbg-horizon').textContent = (msg.horizon || []).join(' → ');
       $('dbg-time').textContent    = (msg.video_time ?? 0).toFixed(2) + 's';
       dotNitrogen.className = 'dot active';

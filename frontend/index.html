@@ -36,6 +36,7 @@
         </div>
 
         <div id="video-player-area" style="display:none">
+          <p id="prepare-status" class="prepare-status" hidden></p>
           <video id="video-player" controls></video>
           <div id="video-controls">
             <button id="btn-start-analysis" class="btn btn-primary">▶ 开始分析</button>
@@ -66,6 +67,14 @@
           <span id="dbg-conf">—</span>
           <span class="label">方向</span>
           <span id="dbg-dir">—</span>
+        </div>
+        <div class="debug-row">
+          <span class="label">转向 steer</span>
+          <span id="dbg-steer">—</span>
+          <span class="label">油门</span>
+          <span id="dbg-throttle">—</span>
+          <span class="label">刹车</span>
+          <span id="dbg-brake">—</span>
         </div>
         <div class="debug-row">
           <span class="label">预测序列</span>

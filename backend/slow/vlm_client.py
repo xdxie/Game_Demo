@@ -96,7 +96,10 @@ async def call_vlm(
 
     user_text = (
         f"{ctx_summary}\n\n"
-        f"NitroGen 当前感知：\n"
+        f"NitroGen 操控量（简化）：\n"
+        f"- 转向 steer：{signal.steer:+.2f}（-1 左，+1 右）\n"
+        f"- 油门 throttle：{signal.throttle}\n"
+        f"- 刹车 brake：{signal.brake}\n"
         f"- 主导意图：{signal.primary_intent}（置信度 {signal.confidence:.0%}）\n"
         f"- 方向：{signal.move_direction or '无'}\n"
         f"- 未来预测：{'→'.join(signal.horizon_sequence)}\n\n"

@@ -64,6 +64,8 @@ from backend.tts.engine import TTSEngine
 from backend.tts.protocol import frame_tts_audio
 from backend.tts.queue import TTSQueue, Priority
 from backend.asr.handler import ASRHandler
+from backend import warmup
+from backend.slow.vlm_factory import vlm_mock_enabled
 
 import os
 
@@ -174,6 +176,11 @@ class GameSession:
             rate=cfg.tts_rate,
             synthesis_timeout=cfg.tts_synthesis_timeout_sec,
         )
+        tts_cache = warmup.get_tts_cache()
+        if tts_cache:
+            self.tts_engine._cache.update(tts_cache)
+
+        whisper = warmup.get_whisper_model(cfg)
         self.asr_handler = ASRHandler(
             model_size=cfg.whisper_model,
             language=cfg.whisper_language,
@@ -181,6 +188,7 @@ class GameSession:
             vad_speech_min_sec=cfg.vad_speech_min_sec,
             vad_silence_end_sec=cfg.vad_silence_end_sec,
             tts_mute_tail_sec=cfg.tts_mute_tail_sec,
+            whisper_model=whisper,
         )
         self.asr_handler.on_state_change = self._on_asr_state_change
         self.tts_queue = TTSQueue(
@@ -225,8 +233,11 @@ class GameSession:
     async def start(self):
         """启动推理与分析循环（不再需要打开视频文件）"""
         self._loop = asyncio.get_running_loop()
+        await warmup.ensure_warmup(self.cfg)
+        self.tts_engine._cache.update(warmup.get_tts_cache())
         self.nitrogen.start(self.frame_buffer)   # Fix 11：传 FrameBuffer
-        await self.tts_engine.preload_async()
+        if not self.tts_engine._cache:
+            await self.tts_engine.preload_async()
 
         self._running = True
         self._main_loop_task = asyncio.create_task(self._analysis_loop())
@@ -265,6 +276,9 @@ class GameSession:
                         "direction":  signal.move_direction,
                         "horizon":    signal.horizon_sequence,
                         "video_time": round(video_time, 2),
+                        "steer":      round(signal.steer, 3),
+                        "throttle":   signal.throttle,
+                        "brake":      signal.brake,
                     })
 
                     event = self.action_filter.process(
@@ -516,6 +530,8 @@ async def probe_health():
         "ok": True,
         "websocket_ready": _websocket_stack_ready(),
         "nitrogen_mode": "mock" if nitrogen_mock_enabled(cfg) else "live",
+        "vlm_mode": "mock" if vlm_mock_enabled(cfg) else "live",
+        "prepare": warmup.get_status(),
         "session_running": _session is not None and _session._running,
         "ws_clients": len(_ws_clients),
         "has_primary": _primary_ws is not None,
@@ -545,6 +561,30 @@ async def session_status():
         "running": running,
         "has_primary": _primary_ws is not None,
     }
+
+
+@app.get("/prepare/status")
+async def prepare_status():
+    """视频选中后后台预热进度（Whisper + TTS 缓存）"""
+    cfg = get_config()
+    st = warmup.get_status()
+    st["vlm_mode"] = "mock" if vlm_mock_enabled(cfg) else "live"
+    return st
+
+
+@app.post("/prepare")
+async def prepare_resources():
+    """
+    选择视频后即可调用：后台加载 Whisper 与 TTS 预缓存。
+    VLM 不在此常驻加载——仅在事件触发时短时运行（mock 或 Claude）。
+    """
+    cfg = get_config()
+    st = warmup.get_status()
+    if st["status"] == "ready":
+        return st
+    if st["status"] != "loading":
+        await warmup.start_background_warmup(cfg)
+    return warmup.get_status()
 
 
 @app.post("/start")

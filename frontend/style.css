@@ -147,6 +147,18 @@ body { background: var(--bg); color: var(--text); overflow: hidden; }
 }
 .upload-area p { font-size: 14px; }
 .upload-area .hint { font-size: 12px; }
+
+.prepare-status {
+  font-size: 13px;
+  margin: 0 0 8px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: #1a2332;
+  color: #9ab;
+}
+.prepare-status.loading { color: #8cf; }
+.prepare-status.ready { color: #6c6; background: #142218; }
+.prepare-status.error { color: #f96; background: #2a1818; }
 input[type="file"] { display: none; }
 
 #video-player-area {

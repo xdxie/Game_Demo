@@ -11,7 +11,7 @@ import time
 from typing import TYPE_CHECKING, Callable, Optional
 
 from backend.fast.event import EventType, GameEvent
-from backend.slow.vlm_client import call_vlm
+from backend.slow.vlm_factory import call_vlm
 
 if TYPE_CHECKING:
     from PIL import Image

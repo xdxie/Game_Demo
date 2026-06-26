@@ -62,7 +62,9 @@ class TestMockNitroGenClient:
             fb.push(_tiny_jpeg(), 1.0)
             client.on_frame_pushed()
             assert client.latest_signal is not None
-            assert client.latest_signal.primary_intent == "DODGE"
+            assert client.latest_signal.primary_intent == "NAVIGATE"
+            assert client.latest_signal.steer < 0
+            assert client.latest_signal.throttle == 1
             assert client.inference_count == 1
         finally:
             client.stop()

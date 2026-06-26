@@ -78,6 +78,20 @@ def make_event(
     )
 
 
+@pytest.fixture(autouse=True)
+def _stub_warmup(monkeypatch):
+    """避免单元测试加载真实 Whisper / TTS 预热。"""
+    from unittest.mock import AsyncMock
+    import backend.warmup as warmup_mod
+
+    monkeypatch.setattr(warmup_mod, "get_whisper_model", lambda cfg=None: MagicMock())
+    monkeypatch.setattr(warmup_mod, "get_tts_cache", lambda: {})
+    monkeypatch.setattr(warmup_mod, "ensure_warmup", AsyncMock())
+    monkeypatch.setattr(warmup_mod, "get_status", lambda: {
+        "status": "ready", "whisper_ready": True, "tts_ready": True, "error": None,
+    })
+
+
 @pytest.fixture
 def mock_tts_engine():
     """

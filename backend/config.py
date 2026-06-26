@@ -28,7 +28,9 @@ class Config:
 
     # ── 慢系统：VLM（4号负责调优）────────────────────────────────────
     vlm_model: str = "claude-sonnet-4-6"
-    vlm_max_tokens: int = 120           # 限制回答字数（约 40 字 + buffer）
+    vlm_max_tokens: int = 120
+    vlm_mock: bool = True                 # 无 API Key 时默认 mock VLM
+    vlm_mock_delay_sec: float = 0.35      # mock VLM 模拟推理延迟（秒，用于指示灯）
     context_window_sec: float = 15.0    # 上下文缓冲区时间窗口
     slow_max_queue_age: float = 8.0     # 慢系统 TTS 结果有效期（秒）
     vlm_dedup_sec: float = 5.0          # 同类事件 VLM 去重窗口

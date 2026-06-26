@@ -109,7 +109,9 @@ NITROGEN_SERVER=tcp://localhost:5555   # NITROGEN_MOCK=0 时生效
 python run.py
 ```
 
-默认 `NITROGEN_MOCK=1`（见 `config.py` / `.env.example`）：后端模拟 `perception` JSON，终端**不会**刷 `NitroGen timeout`。
+默认 `NITROGEN_MOCK=1`、`VLM_MOCK=1`（见 `.env.example`）：模拟 **steer/throttle/brake** 操控量 + mock VLM 回答，无需 GPU / Anthropic。
+
+**VLM 非常驻**：仅在用户提问或慢事件触发时运行（指示灯短暂亮起）。选择视频后自动 `POST /prepare` 预热 Whisper + TTS。
 
 1. 探针：http://localhost:8000/probe → 运行全部（应 **10 步全绿**）
 2. 主应用：http://localhost:8000 → 选视频 → 开始分析 → 右侧调试面板应看到 intent/confidence 变化
