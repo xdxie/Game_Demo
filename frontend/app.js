@@ -258,6 +258,7 @@ videoPlayer.addEventListener('seeking', () => {
 });
 
 videoPlayer.addEventListener('pause', () => {
+  stopTTSAudio();
   if (ws && ws.readyState === WebSocket.OPEN)
     ws.send(JSON.stringify({ type: 'playback', action: 'pause' }));
 });

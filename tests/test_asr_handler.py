@@ -60,7 +60,7 @@ class TestVAD:
         SILENCE_END_SEC=1.2，每块 100ms → 需要 ≥ 12 个静音块。
         """
         done = threading.Event()
-        asr_handler.on_utterance = lambda text: done.set()
+        asr_handler.on_utterance = lambda text, gen=0: done.set()
 
         # 语音段（超过 SPEECH_MIN_SEC=0.5 → ≥ 5 块）
         for _ in range(8):
@@ -77,7 +77,7 @@ class TestVAD:
     def test_short_speech_not_flushed(self, asr_handler):
         """语音时长 < SPEECH_MIN_SEC → 不触发识别"""
         called = threading.Event()
-        asr_handler.on_utterance = lambda text: called.set()
+        asr_handler.on_utterance = lambda text, gen=0: called.set()
 
         # 只发 1 个语音块（100ms << SPEECH_MIN_SEC=0.5s）
         asr_handler.process_audio_chunk(LOUD_CHUNK)
@@ -217,7 +217,7 @@ class TestNonBlockingTranscription:
     def test_transcription_thread_calls_on_utterance(self, asr_handler):
         """转写线程应在完成后调用 on_utterance"""
         results = []
-        asr_handler.on_utterance = lambda text: results.append(text)
+        asr_handler.on_utterance = lambda text, gen=0: results.append(text)
 
         # 直接向转写队列推任务
         arr = np.zeros(16000, dtype=np.float32)
@@ -284,7 +284,7 @@ class TestSeekReset:
     def test_reset_for_seek_discards_stale_transcription(self, asr_handler):
         """Seek 后旧 generation 的转写结果应被丢弃，不触发 on_utterance。"""
         results = []
-        asr_handler.on_utterance = lambda text: results.append(text)
+        asr_handler.on_utterance = lambda text, gen=0: results.append(text)
         stale_gen = asr_handler._seek_generation
 
         asr_handler.reset_for_seek()
@@ -303,3 +303,19 @@ class TestSeekReset:
         assert asr_handler.seek_generation == 0
         asr_handler.reset_for_seek()
         assert asr_handler.seek_generation == 1
+
+    def test_seek_during_transcribe_discards_callback(self, asr_handler):
+        """seek 发生在 transcribe 完成与回调之间时，不应触发 on_utterance"""
+        results = []
+        asr_handler.on_utterance = lambda text, gen: results.append((text, gen))
+
+        def transcribe_then_seek(*args, **kwargs):
+            asr_handler.reset_for_seek()
+            return {"text": "幽灵问题"}
+
+        asr_handler.model.transcribe.side_effect = transcribe_then_seek
+        stale_gen = asr_handler.seek_generation
+        asr_handler._transcription_queue.put((np.zeros(100), stale_gen))
+        time.sleep(0.3)
+
+        assert results == []

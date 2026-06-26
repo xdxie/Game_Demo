@@ -74,21 +74,24 @@ class TestGameSessionControls:
             await session.on_pause()
 
         asyncio.run(_run())
+        assert session._analysis_paused is True
         session.tts_queue.clear_and_stop.assert_called_once()
         session.asr_handler.mute.assert_called_once()
 
-    def test_on_resume_unmutes_asr(self, session):
+    def test_on_resume_clears_analysis_paused(self, session):
+        session._analysis_paused = True
         async def _run():
             await session.on_resume()
 
         asyncio.run(_run())
+        assert session._analysis_paused is False
         session.asr_handler.force_unmute.assert_called_once()
 
     def test_handle_user_utterance_discards_after_seek(self, session):
         async def _run():
             session.asr_handler.seek_generation = 2
             session.vlm_manager.submit = AsyncMock()
-            await session._handle_user_utterance("旧问题", seek_gen=1)
+            await session._handle_user_utterance("旧问题", utterance_gen=1)
 
         asyncio.run(_run())
         session._broadcast.assert_not_called()
@@ -99,7 +102,7 @@ class TestGameSessionControls:
             session.asr_handler.seek_generation = 1
             session.frame_buffer.latest_frame = MagicMock()
             session.vlm_manager.submit = AsyncMock()
-            await session._handle_user_utterance("新问题", seek_gen=1)
+            await session._handle_user_utterance("新问题", utterance_gen=1)
 
         asyncio.run(_run())
         session._broadcast.assert_called_once()

@@ -136,6 +136,7 @@ class GameSession:
 
         self._main_loop_task: Optional[asyncio.Task] = None
         self._running = False
+        self._analysis_paused = False
         self._loop: Optional[asyncio.AbstractEventLoop] = None
 
     # ── 生命周期 ──────────────────────────────────────────────────────
@@ -169,27 +170,28 @@ class GameSession:
         interval = 1.0 / self.cfg.nitrogen_target_fps
 
         while self._running:
-            signal     = self.nitrogen.latest_signal
-            video_time = self.frame_buffer.video_position
+            if not self._analysis_paused:
+                signal     = self.nitrogen.latest_signal
+                video_time = self.frame_buffer.video_position
 
-            if signal is not None:
-                self.ctx_buffer.push_signal(video_time, signal)
+                if signal is not None:
+                    self.ctx_buffer.push_signal(video_time, signal)
 
-                await self._broadcast({
-                    "type":       "perception",
-                    "intent":     signal.primary_intent,
-                    "confidence": round(signal.confidence, 3),
-                    "direction":  signal.move_direction,
-                    "horizon":    signal.horizon_sequence,
-                    "video_time": round(video_time, 2),
-                })
+                    await self._broadcast({
+                        "type":       "perception",
+                        "intent":     signal.primary_intent,
+                        "confidence": round(signal.confidence, 3),
+                        "direction":  signal.move_direction,
+                        "horizon":    signal.horizon_sequence,
+                        "video_time": round(video_time, 2),
+                    })
 
-                event = self.action_filter.process(
-                    signal, video_time,
-                    global_min_interval=self.cfg.global_tts_min_interval,
-                )
-                if event is not None:
-                    await self._handle_event(event)
+                    event = self.action_filter.process(
+                        signal, video_time,
+                        global_min_interval=self.cfg.global_tts_min_interval,
+                    )
+                    if event is not None:
+                        await self._handle_event(event)
 
             await asyncio.sleep(interval)
 
@@ -204,7 +206,10 @@ class GameSession:
         if event.trigger_slow:
             frame = self.frame_buffer.latest_frame
             if frame is not None:
-                await self.vlm_manager.submit(event, frame)
+                seek_gen = self.asr_handler.seek_generation
+                await self.vlm_manager.submit(
+                    event, frame, utterance_seek_gen=seek_gen,
+                )
 
     # ── 用户语音 ──────────────────────────────────────────────────────
 
@@ -216,14 +221,13 @@ class GameSession:
             return
         asyncio.run_coroutine_threadsafe(coro, loop)
 
-    def _on_user_utterance(self, text: str):
+    def _on_user_utterance(self, text: str, utterance_gen: int):
         """ASR 转写完成回调（在转写线程中调用）"""
-        seek_gen = self.asr_handler.seek_generation
         logger.info("User question: %s", text)
-        self._schedule(self._handle_user_utterance(text, seek_gen))
+        self._schedule(self._handle_user_utterance(text, utterance_gen))
 
-    async def _handle_user_utterance(self, text: str, seek_gen: int):
-        if seek_gen != self.asr_handler.seek_generation:
+    async def _handle_user_utterance(self, text: str, utterance_gen: int):
+        if utterance_gen != self.asr_handler.seek_generation:
             logger.debug("User utterance discarded (stale after seek): %s", text)
             return
 
@@ -249,7 +253,9 @@ class GameSession:
         )
         frame = self.frame_buffer.latest_frame
         if frame is not None:
-            await self.vlm_manager.submit(event, frame, utterance_seek_gen=seek_gen)
+            await self.vlm_manager.submit(
+                event, frame, utterance_seek_gen=utterance_gen,
+            )
 
     # ── 视频控制 ──────────────────────────────────────────────────────
 
@@ -278,12 +284,14 @@ class GameSession:
         await self._broadcast({"type": "seek_done", "time": new_time})
 
     async def on_pause(self):
+        self._analysis_paused = True
         self.frame_buffer.pause()
         self.nitrogen.pause()
         self.tts_queue.clear_and_stop()
         self.asr_handler.mute()
 
     async def on_resume(self):
+        self._analysis_paused = False
         self.frame_buffer.resume()
         self.nitrogen.resume()
         self.asr_handler.force_unmute()

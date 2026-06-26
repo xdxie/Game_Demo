@@ -92,9 +92,32 @@ class TestVLMSeekGeneration:
                 new_callable=AsyncMock,
                 return_value="快躲",
             ):
-                await vlm_manager.submit(event, frame)
+                await vlm_manager.submit(
+                    event, frame, utterance_seek_gen=vlm_manager._seek_gen["value"],
+                )
                 await asyncio.sleep(0.05)
 
             vlm_manager._tts.push.assert_called_once()
+
+        asyncio.run(_run())
+
+    def test_event_submit_discarded_after_seek(self, vlm_manager):
+        async def _run():
+            frame = MagicMock()
+            event = make_event(etype=EventType.SUDDEN_DODGE, slow=True)
+            submit_gen = vlm_manager._seek_gen["value"]
+
+            with patch(
+                "backend.slow.trigger.call_vlm",
+                new_callable=AsyncMock,
+                return_value="慢建议",
+            ):
+                await vlm_manager.submit(
+                    event, frame, utterance_seek_gen=submit_gen,
+                )
+                vlm_manager._seek_gen["value"] = submit_gen + 1
+                await asyncio.sleep(0.05)
+
+            vlm_manager._tts.push.assert_not_called()
 
         asyncio.run(_run())

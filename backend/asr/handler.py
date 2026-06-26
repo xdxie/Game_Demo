@@ -29,7 +29,7 @@ class ASRHandler:
                                                   ↓
                                      _transcription_thread → whisper.transcribe()
                                                                    ↓
-                                                           on_utterance(text)
+                                                           on_utterance(text, generation)
     """
 
     def __init__(
@@ -51,7 +51,7 @@ class ASRHandler:
         self.language = language
         logger.info("Whisper loaded")
 
-        self.on_utterance: Optional[Callable[[str], None]] = None
+        self.on_utterance: Optional[Callable[[str, int], None]] = None
         self.on_state_change: Optional[Callable[[str], None]] = None
 
         self._muted = False
@@ -91,12 +91,12 @@ class ASRHandler:
         with self._state_lock:
             self._cancel_unmute_timer()
             self._muted = True
-            self._reset_vad()
+            self._reset_vad_unlocked()
             if self._activity_state == "recording":
                 self._activity_state = (
                     "processing" if self._gen_inflight > 0 else "listening"
                 )
-            self._emit_state()
+            self._emit_state_unlocked()
         logger.debug("ASR muted")
 
     def unmute(self):
@@ -112,7 +112,7 @@ class ASRHandler:
             self._cancel_unmute_timer()
             self._muted = False
             self._sync_activity_after_unmute()
-            self._emit_state()
+            self._emit_state_unlocked()
         logger.debug("ASR force unmuted")
 
     def reset_for_seek(self):
@@ -134,9 +134,9 @@ class ASRHandler:
                     0, self._transcription_inflight - drained
                 )
             self._gen_inflight = 0
-            self._reset_vad()
+            self._reset_vad_unlocked()
             self._activity_state = "listening"
-            self._emit_state()
+            self._emit_state_unlocked()
         logger.debug(
             "ASR reset for seek (gen=%d, drained=%d)",
             self.seek_generation, drained,
@@ -147,7 +147,7 @@ class ASRHandler:
             self._unmute_timer = None
             self._muted = False
             self._sync_activity_after_unmute()
-            self._emit_state()
+            self._emit_state_unlocked()
         logger.debug("ASR unmuted")
 
     def _sync_activity_after_unmute(self):
@@ -173,50 +173,56 @@ class ASRHandler:
             if self._muted:
                 return
 
-        audio = np.frombuffer(audio_bytes, dtype=np.int16)
-        if len(audio) == 0:
-            return
+            audio = np.frombuffer(audio_bytes, dtype=np.int16)
+            if len(audio) == 0:
+                return
 
-        amplitude = float(np.abs(audio).mean())
+            amplitude = float(np.abs(audio).mean())
 
-        chunks_per_sec = sample_rate / len(audio)
-        silence_limit  = int(self.SILENCE_END_SEC * chunks_per_sec)
-        speech_min     = int(self.SPEECH_MIN_SEC  * chunks_per_sec)
+            chunks_per_sec = sample_rate / len(audio)
+            silence_limit  = int(self.SILENCE_END_SEC * chunks_per_sec)
+            speech_min     = int(self.SPEECH_MIN_SEC  * chunks_per_sec)
 
-        if amplitude > self.SILENCE_THRESHOLD:
-            self._speaking = True
-            self._silence_frames = 0
-            self._speech_frames += 1
-            self._audio_buffer.append(audio_bytes)
-            self._set_activity("recording")
+            if amplitude > self.SILENCE_THRESHOLD:
+                self._speaking = True
+                self._silence_frames = 0
+                self._speech_frames += 1
+                self._audio_buffer.append(audio_bytes)
+                self._set_activity_unlocked("recording")
 
-        elif self._speaking:
-            self._silence_frames += 1
-            self._audio_buffer.append(audio_bytes)
+            elif self._speaking:
+                self._silence_frames += 1
+                self._audio_buffer.append(audio_bytes)
 
-            if self._silence_frames >= silence_limit:
-                if self._speech_frames >= speech_min:
-                    self._flush()
-                else:
-                    self._set_activity("listening")
-                self._reset_vad()
+                if self._silence_frames >= silence_limit:
+                    if self._speech_frames >= speech_min:
+                        self._flush_unlocked()
+                    else:
+                        self._set_activity_unlocked("listening")
+                    self._reset_vad_unlocked()
 
     # ── 内部实现 ──────────────────────────────────────────────────────
 
     def _set_activity(self, state: str):
         """更新非 mute 维度的活动状态（listening / recording / processing）"""
         with self._state_lock:
-            if self._activity_state != state:
-                self._activity_state = state
-                self._emit_state()
+            self._set_activity_unlocked(state)
+
+    def _set_activity_unlocked(self, state: str):
+        if self._activity_state != state:
+            self._activity_state = state
+            self._emit_state_unlocked()
 
     def _emit_state(self):
         with self._state_lock:
-            state = "muted" if self._muted else self._activity_state
-            if state == self._last_emitted_state:
-                return
-            self._last_emitted_state = state
-            callback = self.on_state_change
+            self._emit_state_unlocked()
+
+    def _emit_state_unlocked(self):
+        state = "muted" if self._muted else self._activity_state
+        if state == self._last_emitted_state:
+            return
+        self._last_emitted_state = state
+        callback = self.on_state_change
         if callback:
             try:
                 callback(state)
@@ -224,6 +230,10 @@ class ASRHandler:
                 logger.error("ASR on_state_change error: %s", e)
 
     def _flush(self):
+        with self._state_lock:
+            self._flush_unlocked()
+
+    def _flush_unlocked(self):
         if not self._audio_buffer:
             return
 
@@ -235,16 +245,14 @@ class ASRHandler:
         logger.debug("ASR queued %.1fs audio for transcription", len(arr) / 16000)
 
         try:
-            with self._state_lock:
-                gen = self._seek_generation
+            gen = self._seek_generation
             self._transcription_queue.put_nowait((arr, gen))
-            with self._state_lock:
-                self._transcription_inflight += 1
-                self._gen_inflight += 1
-            self._set_activity("processing")
+            self._transcription_inflight += 1
+            self._gen_inflight += 1
+            self._set_activity_unlocked("processing")
         except queue.Full:
             logger.warning("ASR transcription queue full, dropping audio")
-            self._set_activity("listening")
+            self._set_activity_unlocked("listening")
 
     def _transcription_loop(self):
         while True:
@@ -258,13 +266,18 @@ class ASRHandler:
                     language=self.language,
                     fp16=False,
                 )
-                if generation != self._seek_generation:
-                    logger.debug("ASR result discarded (stale after seek)")
-                    continue
                 text = result["text"].strip()
                 logger.info("ASR result: %s", text)
-                if text and self.on_utterance:
-                    self.on_utterance(text)
+                callback = None
+                utterance_gen = generation
+                with self._state_lock:
+                    if generation != self._seek_generation:
+                        logger.debug("ASR result discarded (stale after seek)")
+                        text = ""
+                    elif text and self.on_utterance:
+                        callback = self.on_utterance
+                if callback:
+                    callback(text, utterance_gen)
             except Exception as e:
                 logger.error("Whisper transcribe error: %s", e)
             finally:
@@ -285,6 +298,10 @@ class ASRHandler:
                         self._set_activity("listening")
 
     def _reset_vad(self):
+        with self._state_lock:
+            self._reset_vad_unlocked()
+
+    def _reset_vad_unlocked(self):
         self._speaking       = False
         self._audio_buffer   = []
         self._speech_frames  = 0

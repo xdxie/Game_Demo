@@ -134,7 +134,8 @@ class TTSQueue:
 
     def _on_audio_data(self, mp3_bytes: bytes):
         """TTSEngine 合成完成 → 带 utterance_id 广播"""
-        uid = self._pending_done_id
+        with self._lock:
+            uid = self._pending_done_id
         if uid is None or not self._broadcast_audio:
             return
         try:

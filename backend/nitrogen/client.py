@@ -43,6 +43,7 @@ class NitroGenClient:
         self._lock   = threading.Lock()
 
         self._latest_signal: Optional[PerceptionSignal] = None
+        self._signal_generation = 0
         self._signal_lock = threading.Lock()
 
         self._running = False
@@ -88,9 +89,10 @@ class NitroGenClient:
             return self._latest_signal
 
     def clear_signal(self):
-        """seek 时清空旧感知信号，防止新位置误用旧意图"""
+        """seek 时清空旧感知信号，并使进行中的推理结果失效"""
         with self._signal_lock:
             self._latest_signal = None
+            self._signal_generation += 1
 
     # ── 内部推理循环 ──────────────────────────────────────────────────
 
@@ -113,6 +115,8 @@ class NitroGenClient:
                 continue
 
             try:
+                with self._signal_lock:
+                    gen_at_start = self._signal_generation
                 payload = pickle.dumps({"type": "predict", "image": frame})
                 self._socket.send(payload)
                 raw = self._socket.recv()
@@ -122,7 +126,8 @@ class NitroGenClient:
                 signal = parse_chunk(chunk, self.btn_threshold)
 
                 with self._signal_lock:
-                    self._latest_signal = signal
+                    if gen_at_start == self._signal_generation:
+                        self._latest_signal = signal
 
                 self.inference_count += 1
 
