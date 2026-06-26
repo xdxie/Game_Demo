@@ -489,12 +489,12 @@ class GameSession:
             self._analysis_paused = was_analysis_paused
 
     async def on_pause(self):
+        """暂停视频分析；麦克风保持收音（仅 TTS 播报时 mute）。"""
         self._analysis_paused = True
         self.frame_buffer.pause()
         self.nitrogen.pause()
         self.tts_queue.clear_and_stop()
         await self.vlm_manager.cancel_all()
-        self.asr_handler.mute()
 
     async def on_resume(self):
         self._analysis_paused = False

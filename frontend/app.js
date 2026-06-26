@@ -446,7 +446,6 @@ async function ensureMicrophoneReady() {
     } else if (audioContext.state === 'suspended') {
       await audioContext.resume();
     }
-    updateMicStatus('listening');
   } catch (err) {
     console.error('ensureMicrophoneReady:', err);
   }
@@ -744,7 +743,7 @@ async function startMicrophone() {
       audio: {
         channelCount: 1,
         echoCancellation: true,
-        noiseSuppression: true,
+        noiseSuppression: false,
         autoGainControl: true,
       }
     });
@@ -753,6 +752,8 @@ async function startMicrophone() {
     await audioContext.resume();
 
     const source = audioContext.createMediaStreamSource(mediaStream);
+    const micGain = audioContext.createGain();
+    micGain.gain.value = 2.0;
     const frameSize = Math.round(audioContext.sampleRate * 0.1);
 
     if (audioContext.audioWorklet) {
@@ -773,15 +774,15 @@ async function startMicrophone() {
       };
       const silentGain = audioContext.createGain();
       silentGain.gain.value = 0;
-      source.connect(audioProcessor);
+      source.connect(micGain);
+      micGain.connect(audioProcessor);
       audioProcessor.connect(silentGain);
       silentGain.connect(audioContext.destination);
     } else {
-      startMicrophoneScriptProcessor(source, frameSize);
+      startMicrophoneScriptProcessor(source, micGain, frameSize);
     }
 
     console.log('Microphone started @', audioContext.sampleRate, 'Hz');
-    updateMicStatus('listening');
   } catch (err) {
     console.error('Mic error:', err);
     micStatus.textContent = '🎤 无权限';
@@ -789,7 +790,7 @@ async function startMicrophone() {
 }
 
 /** ScriptProcessor 回退（旧浏览器）；不将麦克风路由到扬声器。 */
-function startMicrophoneScriptProcessor(source, frameSize) {
+function startMicrophoneScriptProcessor(source, micGain, frameSize) {
   const bufferSize = Math.max(256, Math.min(16384, frameSize));
   audioProcessor = audioContext.createScriptProcessor(bufferSize, 1, 1);
 
@@ -809,7 +810,8 @@ function startMicrophoneScriptProcessor(source, frameSize) {
 
   const silentGain = audioContext.createGain();
   silentGain.gain.value = 0;
-  source.connect(audioProcessor);
+  source.connect(micGain);
+  micGain.connect(audioProcessor);
   audioProcessor.connect(silentGain);
   silentGain.connect(audioContext.destination);
 }

@@ -67,7 +67,7 @@ class Config:
     # ── ASR（5号负责调优）─────────────────────────────────────────────
     whisper_model: str = "base"
     whisper_language: str = "zh"
-    vad_silence_threshold: int = 300        # 振幅静音阈值（0~32768），需实测
+    vad_silence_threshold: int = 120        # 振幅门限（RMS/峰值混合，见 handler._chunk_level）
     vad_speech_min_sec: float = 0.5         # 最短有效语音，过滤误触
     vad_silence_end_sec: float = 1.2        # 静音多久判定说话结束
     tts_mute_tail_sec: float = 0.2          # TTS 结束后 ASR 额外静默（消余音）

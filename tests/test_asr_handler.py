@@ -35,8 +35,16 @@ def make_pcm(amplitude: int, n_samples: int = 1600) -> bytes:
     return arr.tobytes()
 
 
+def make_speech_like_pcm(peak: int = 2500, n_samples: int = 1600) -> bytes:
+    """正弦语音模拟：峰值高但 mean(abs) 远低于峰值（贴近真实麦克风）。"""
+    t = np.linspace(0, 0.1, n_samples, endpoint=False)
+    wave = (peak * np.sin(2 * np.pi * 120 * t) * (0.2 + 0.8 * np.abs(np.sin(2 * np.pi * 4 * t))))
+    return wave.astype(np.int16).tobytes()
+
+
 SILENT_CHUNK = make_pcm(0)       # 无声音
-LOUD_CHUNK   = make_pcm(1000)    # 高于默认阈值 300
+LOUD_CHUNK   = make_pcm(1000)    # 高于默认阈值
+SPEECH_CHUNK = make_speech_like_pcm(2500)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -53,6 +61,11 @@ class TestVAD:
         asr_handler.process_audio_chunk(LOUD_CHUNK)
         assert asr_handler._speaking is True
         assert asr_handler._speech_frames == 1
+
+    def test_speech_like_chunk_triggers_vad(self, asr_handler):
+        """正弦模拟语音：mean(abs) 很低，但 RMS/峰值应触发 VAD。"""
+        asr_handler.process_audio_chunk(SPEECH_CHUNK)
+        assert asr_handler._speaking is True
 
     def test_speech_then_silence_flushes(self, asr_handler):
         """

@@ -217,7 +217,7 @@ class ASRHandler:
             if len(audio) == 0:
                 return
 
-            amplitude = float(np.abs(audio).mean())
+            amplitude = self._chunk_level(audio)
 
             chunks_per_sec = sample_rate / len(audio)
             silence_limit  = int(self.SILENCE_END_SEC * chunks_per_sec)
@@ -253,7 +253,7 @@ class ASRHandler:
         if len(audio) == 0:
             return
 
-        amplitude = float(np.abs(audio).mean())
+        amplitude = self._chunk_level(audio)
         chunks_per_sec = sample_rate / len(audio)
         speech_min = int(self.SPEECH_MIN_SEC * chunks_per_sec)
 
@@ -272,6 +272,16 @@ class ASRHandler:
             self._barge_in_frames = max(0, self._barge_in_frames - 1)
 
     # ── 内部实现 ──────────────────────────────────────────────────────
+
+    @staticmethod
+    def _chunk_level(audio: np.ndarray) -> float:
+        """语音块响度：RMS 与峰值加权，比单纯 mean(abs) 更稳。"""
+        if audio.size == 0:
+            return 0.0
+        abs_a = np.abs(audio.astype(np.float64))
+        peak = float(abs_a.max())
+        rms = float(np.sqrt(np.mean(abs_a ** 2)))
+        return max(rms, peak * 0.12)
 
     def _set_activity(self, state: str):
         """更新非 mute 维度的活动状态（listening / recording / processing）"""

@@ -97,7 +97,7 @@ class TestGameSessionControls:
         asyncio.run(_run())
         assert session._analysis_paused is False
 
-    def test_on_pause_stops_tts_and_mutes_asr(self, session):
+    def test_on_pause_stops_tts_without_muting_asr(self, session):
         async def _run():
             await session.on_pause()
 
@@ -105,7 +105,7 @@ class TestGameSessionControls:
         assert session._analysis_paused is True
         session.tts_queue.clear_and_stop.assert_called_once()
         session.vlm_manager.cancel_all.assert_called_once()
-        session.asr_handler.mute.assert_called_once()
+        session.asr_handler.mute.assert_not_called()
 
     def test_on_resume_clears_analysis_paused(self, session):
         session._analysis_paused = True
