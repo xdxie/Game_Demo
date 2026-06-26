@@ -161,8 +161,8 @@ async def _send_session_role(ws: WebSocket) -> None:
         await ws.send_json({"type": "session_role", "role": role})
     except Exception:
         pass
-    if role == "primary" and _session is not None and _session._running:
-        if _session._analysis_paused:
+    if role == "primary" and _session is not None:
+        if _session._running and _session._analysis_paused:
             try:
                 await _session.on_resume()
             except Exception as e:
@@ -846,6 +846,7 @@ async def start_session():
         "vlm_mode": vlm_mode,
         "vlm_model": cfg.vlm_model,
         "prepare": warmup.get_status(),
+        "asr_state": _session.asr_handler.activity_state if _session else "listening",
     }
 
 
@@ -925,6 +926,10 @@ async def websocket_endpoint(ws: WebSocket):
 
                     if mtype == "register":
                         await _handle_register(ws, data)
+                        continue
+
+                    if mtype == "request_asr_state" and _session:
+                        await _session._broadcast_asr_state(ws)
                         continue
 
                     if ws is not _primary_ws and mtype not in (None,):

@@ -317,6 +317,9 @@ if (clientMode === 'player') {
       }
 
       isAnalysisRunning = true;
+      if (data.asr_state) {
+        updateMicStatus(data.asr_state);
+      }
       try {
         await videoPlayer.play();
       } catch (err) {
@@ -419,6 +422,17 @@ function syncPrimaryStateToServer() {
   }));
 }
 
+function setMicDisconnected() {
+  micStatus.textContent = '🎤 未连接';
+  micStatus.className = '';
+}
+
+function requestAsrState() {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'request_asr_state' }));
+  }
+}
+
 function applySessionRole(role) {
   const wasPrimary = isPrimaryClient;
   isPrimaryClient = (role === 'primary');
@@ -426,6 +440,7 @@ function applySessionRole(role) {
     ensureMicrophoneReady();
     syncPrimaryStateToServer();
     startFrameCapture();
+    requestAsrState();
     if (!wasPrimary) {
       addSystemMsg('已接管主连接');
     }
@@ -446,6 +461,10 @@ async function ensureMicrophoneReady() {
     } else if (audioContext.state === 'suspended') {
       await audioContext.resume();
     }
+    if (isAnalysisRunning) {
+      updateMicStatus('listening');
+    }
+    requestAsrState();
   } catch (err) {
     console.error('ensureMicrophoneReady:', err);
   }
@@ -453,12 +472,24 @@ async function ensureMicrophoneReady() {
 
 function connectWebSocket() {
   clearWsReconnectTimer();
+  if (ws) {
+    const old = ws;
+    old.onclose = null;
+    old.onerror = null;
+    if (old.readyState === WebSocket.OPEN || old.readyState === WebSocket.CONNECTING) {
+      old.close();
+    }
+  }
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
   ws = new WebSocket(`${protocol}//${location.host}/ws`);
   ws.binaryType = 'arraybuffer';   // Fix 14：接收 ArrayBuffer 而非 Blob
 
   ws.onopen = () => {
     console.log('WebSocket connected');
+    if (isAnalysisRunning && clientMode === 'player') {
+      micStatus.textContent = '🎤 连接中…';
+      micStatus.className = 'loading';
+    }
     ws.send(JSON.stringify({ type: 'register', role: clientMode }));
   };
 
@@ -466,13 +497,14 @@ function connectWebSocket() {
     console.log('WebSocket closed');
     stopFrameCapture();
     if (!isAnalysisRunning) {
-      micStatus.textContent = '🎤 未连接';
+      setMicDisconnected();
       return;
     }
     if (!isPrimaryClient) {
       micStatus.textContent = '👁 旁观（只读）';
     } else {
-      micStatus.textContent = '🎤 未连接';
+      micStatus.textContent = '🎤 重连中…';
+      micStatus.className = 'loading';
     }
     scheduleWsReconnect();
   };
@@ -565,7 +597,10 @@ function handleServerMessage(msg) {
       break;
 
     case 'status':
-      if (msg.state === 'started') dotNitrogen.className = 'dot loading';
+      if (msg.state === 'started') {
+        dotNitrogen.className = 'dot loading';
+        if (isPrimaryClient) updateMicStatus('listening');
+      }
       if (msg.state === 'user_question_no_frame') {
         addSystemMsg('画面未就绪，暂时无法回答，请稍后再问');
       }
@@ -783,6 +818,10 @@ async function startMicrophone() {
     }
 
     console.log('Microphone started @', audioContext.sampleRate, 'Hz');
+    if (isAnalysisRunning) {
+      updateMicStatus('listening');
+    }
+    requestAsrState();
   } catch (err) {
     console.error('Mic error:', err);
     micStatus.textContent = '🎤 无权限';
@@ -993,5 +1032,5 @@ function disconnectAll() {
   dotNitrogen.className = 'dot';
   dotVLM.className      = 'dot';
   ttsStatus.textContent = '🔇 待机';
-  micStatus.textContent = '🎤 未连接';
+  setMicDisconnected();
 }
