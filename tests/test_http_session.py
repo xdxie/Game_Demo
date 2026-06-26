@@ -64,7 +64,10 @@ class TestHttpSession:
     def test_session_status_idle(self, http_client):
         resp = http_client.get("/session/status")
         assert resp.status_code == 200
-        assert resp.json() == {"running": False, "has_primary": False}
+        data = resp.json()
+        assert data["running"] is False
+        assert data["has_primary"] is False
+        assert "vlm_mode" in data
 
     def test_start_returns_409_when_already_running(self, http_client):
         gs = MagicMock()

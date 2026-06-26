@@ -40,7 +40,7 @@ class TestMockNitroGenClient:
     def test_emits_signal_when_frame_available(self):
         fb = FrameBuffer()
         fb.push(_tiny_jpeg(), 1.0)
-        client = MockNitroGenClient(cycle_sec=0.05)
+        client = MockNitroGenClient(phase_sec=0.05)
         client.start(fb)
         try:
             deadline = time.time() + 2.0
@@ -71,7 +71,7 @@ class TestMockNitroGenClient:
 
     def test_no_signal_without_frame(self):
         fb = FrameBuffer()
-        client = MockNitroGenClient(cycle_sec=0.05)
+        client = MockNitroGenClient(phase_sec=0.05)
         client.start(fb)
         try:
             time.sleep(0.15)

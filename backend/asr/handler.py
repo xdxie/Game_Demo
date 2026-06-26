@@ -56,12 +56,18 @@ class ASRHandler:
         vad_speech_min_sec: float = 0.5,
         vad_silence_end_sec: float = 1.2,
         tts_mute_tail_sec: float = 0.2,
+        barge_in_enabled: bool = True,
+        barge_in_threshold_mult: float = 1.35,
         whisper_model=None,
     ):
         self.SILENCE_THRESHOLD = vad_silence_threshold
         self.SPEECH_MIN_SEC    = vad_speech_min_sec
         self.SILENCE_END_SEC   = vad_silence_end_sec
         self.TTS_MUTE_TAIL_SEC = tts_mute_tail_sec
+        self._barge_in_enabled = barge_in_enabled
+        self._barge_in_threshold = int(
+            vad_silence_threshold * barge_in_threshold_mult
+        )
 
         if whisper_model is not None:
             self.model = whisper_model
@@ -74,6 +80,7 @@ class ASRHandler:
 
         self.on_utterance: Optional[Callable[[str, int], None]] = None
         self.on_state_change: Optional[Callable[[str], None]] = None
+        self.on_barge_in: Optional[Callable[[], None]] = None
 
         self._muted = False
         self._activity_state = "listening"
@@ -89,6 +96,9 @@ class ASRHandler:
         self._silence_frames = 0
 
         self._unmute_timer: Optional[threading.Timer] = None
+
+        self._barge_in_frames = 0
+        self._barge_in_armed = True
 
         self._transcription_queue: queue.Queue = queue.Queue(maxsize=4)
         self._transcription_thread = threading.Thread(
@@ -112,6 +122,8 @@ class ASRHandler:
         with self._state_lock:
             self._cancel_unmute_timer()
             self._muted = True
+            self._barge_in_frames = 0
+            self._barge_in_armed = True
             self._reset_vad_unlocked()
             if self._activity_state == "recording":
                 self._activity_state = (
@@ -192,6 +204,7 @@ class ASRHandler:
         """
         with self._state_lock:
             if self._muted:
+                self._check_barge_in_unlocked(audio_bytes, sample_rate)
                 return
 
             audio = np.frombuffer(audio_bytes, dtype=np.int16)
@@ -221,6 +234,33 @@ class ASRHandler:
                     else:
                         self._set_activity_unlocked("listening")
                     self._reset_vad_unlocked()
+
+    def _check_barge_in_unlocked(self, audio_bytes: bytes, sample_rate: int):
+        """TTS 播报期间检测用户说话 → 触发打断回调（不写入转写缓冲）。"""
+        if not self._barge_in_enabled or not self._barge_in_armed:
+            return
+
+        audio = np.frombuffer(audio_bytes, dtype=np.int16)
+        if len(audio) == 0:
+            return
+
+        amplitude = float(np.abs(audio).mean())
+        chunks_per_sec = sample_rate / len(audio)
+        speech_min = int(self.SPEECH_MIN_SEC * chunks_per_sec)
+
+        if amplitude > self._barge_in_threshold:
+            self._barge_in_frames += 1
+            if self._barge_in_frames >= speech_min:
+                self._barge_in_armed = False
+                self._barge_in_frames = 0
+                callback = self.on_barge_in
+                if callback:
+                    try:
+                        callback()
+                    except Exception as e:
+                        logger.error("ASR on_barge_in error: %s", e)
+        else:
+            self._barge_in_frames = max(0, self._barge_in_frames - 1)
 
     # ── 内部实现 ──────────────────────────────────────────────────────
 

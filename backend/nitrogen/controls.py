@@ -20,7 +20,7 @@ def signal_from_controls(
     brake = 1 if brake else 0
 
     if brake:
-        intent = "DODGE"
+        intent = "WAIT"
         direction = None
         horizon = ["BRAKE×4", "WAIT×4"]
     elif throttle and steer < -0.25:

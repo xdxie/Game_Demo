@@ -199,9 +199,12 @@ class GameSession:
             vad_speech_min_sec=cfg.vad_speech_min_sec,
             vad_silence_end_sec=cfg.vad_silence_end_sec,
             tts_mute_tail_sec=cfg.tts_mute_tail_sec,
+            barge_in_enabled=cfg.barge_in_enabled,
+            barge_in_threshold_mult=cfg.barge_in_threshold_mult,
             whisper_model=whisper,
         )
         self.asr_handler.on_state_change = self._on_asr_state_change
+        self.asr_handler.on_barge_in = self._on_asr_barge_in
         self.tts_queue = TTSQueue(
             tts_engine=self.tts_engine,
             asr_handler=self.asr_handler,
@@ -258,7 +261,13 @@ class GameSession:
         self._main_loop_task = asyncio.create_task(self._analysis_loop())
 
         await self._broadcast({"type": "status", "state": "started"})
-        logger.info("GameSession started")
+        logger.info(
+            "GameSession started (nitrogen=%s, vlm=%s/%s, fast_tts=%s)",
+            "mock" if nitrogen_mock_enabled(cfg) else "live",
+            vlm_provider(cfg),
+            cfg.vlm_model,
+            cfg.fast_tts_enabled,
+        )
 
     async def stop(self):
         self._running = False
@@ -309,7 +318,7 @@ class GameSession:
         self.ctx_buffer.push_event(event.timestamp, event)
         seek_gen = self.asr_handler.seek_generation
 
-        if event.trigger_fast:
+        if event.trigger_fast and self.cfg.fast_tts_enabled:
             text = render_fast(event)
             self.fast_hist.record(event.timestamp, text)
             if seek_gen == self.asr_handler.seek_generation:
@@ -457,6 +466,11 @@ class GameSession:
     def _on_asr_state_change(self, state: str):
         self._schedule(self._broadcast({"type": "asr_state", "state": state}))
 
+    def _on_asr_barge_in(self):
+        """用户说话打断 TTS，恢复收音。"""
+        logger.info("Barge-in: user speech interrupted TTS")
+        self.tts_queue.barge_in_interrupt()
+
     def _on_tts_start(self, text: str, channel: str, utterance_id: int):
         """TTS 开始播报 → 广播 JSON 事件（供前端更新 UI，在 MP3 之前）"""
         self._schedule(self._broadcast({
@@ -580,6 +594,8 @@ async def session_status():
     return {
         "running": running,
         "has_primary": _primary_ws is not None,
+        "vlm_mode": vlm_provider(get_config()),
+        "fast_tts_enabled": get_config().fast_tts_enabled,
     }
 
 

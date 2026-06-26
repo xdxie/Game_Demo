@@ -298,6 +298,32 @@ class TestTTSQueueConcurrency:
         assert mock_tts_engine.speak_async.call_count == 2
 
 
+class TestTTSQueueInterruptUnmute:
+    def test_clear_and_stop_unmutes_asr(self, mock_tts_engine, mock_asr_handler):
+        mock_tts_engine.speak_async.side_effect = (
+            lambda text, is_cancelled=None, on_dispatched=None, on_error=None: None
+        )
+        q = TTSQueue(mock_tts_engine, mock_asr_handler,
+                     inter_gap=0.0, fallback_margin=0.0)
+        q.push("被动提示", Priority.FAST_HINT)
+        mock_asr_handler.force_unmute.reset_mock()
+        q.clear_and_stop(notify=False)
+        mock_asr_handler.force_unmute.assert_called()
+
+    def test_barge_in_interrupt_unmutes_and_clears_fast(self, mock_tts_engine, mock_asr_handler):
+        mock_tts_engine.speak_async.side_effect = (
+            lambda text, is_cancelled=None, on_dispatched=None, on_error=None: None
+        )
+        q = TTSQueue(mock_tts_engine, mock_asr_handler,
+                     inter_gap=0.0, fallback_margin=0.0)
+        q.push("快提示", Priority.FAST_HINT)
+        mock_asr_handler.force_unmute.reset_mock()
+        q.barge_in_interrupt()
+        mock_asr_handler.force_unmute.assert_called()
+        with q._lock:
+            assert all(i.priority == Priority.USER_ANSWER for i in q._heap)
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # FrameBuffer
 # ═══════════════════════════════════════════════════════════════════════

@@ -383,6 +383,7 @@ function handleServerMessage(msg) {
           || currentUtteranceId === msg.utterance_id
           || pendingUtteranceId === msg.utterance_id) {
         stopTTSAudio();
+        ttsStatus.textContent = '🔇 待机';
       }
       break;
 
@@ -543,6 +544,7 @@ function stopCurrentTTSAudio() {
 function stopTTSAudio() {
   stopCurrentTTSAudio();
   pendingUtteranceId = null;
+  ttsStatus.textContent = '🔇 待机';
 }
 
 function playTTSAudio(arrayBuffer, utteranceIdFromFrame) {
@@ -571,6 +573,7 @@ function playTTSAudio(arrayBuffer, utteranceIdFromFrame) {
     sendTtsDone(utteranceId);
     currentUtteranceId = null;
     clearPlayingHighlight();
+    ttsStatus.textContent = '🔇 待机';
   };
 
   audio.onended = onPlaybackEnd;

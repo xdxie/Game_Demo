@@ -14,7 +14,7 @@ class TestControls:
         s = signal_from_controls(0.0, 0, 1)
         assert s.brake == 1
         assert s.throttle == 0
-        assert s.primary_intent == "DODGE"
+        assert s.primary_intent == "WAIT"
 
     def test_left_throttle(self):
         s = signal_from_controls(-0.8, 1, 0)

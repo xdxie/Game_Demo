@@ -3,6 +3,7 @@
 """
 
 from __future__ import annotations
+import os
 from dataclasses import dataclass, field
 
 
@@ -12,6 +13,7 @@ class Config:
     nitrogen_server: str = "tcp://localhost:5555"
     nitrogen_target_fps: float = 10.0    # 向 NitroGen 发送的帧率（推理约200ms/chunk）
     nitrogen_mock: bool = True           # 无 GPU 时 True：模拟 perception，仅测前端闭环
+    fast_tts_enabled: bool = True      # mock 模式下默认关闭，见 _apply_env
 
     # ── 快系统：动作过滤阈值（2号负责调优）────────────────────────────
     fast_trigger_confidence: float = 0.75   # 快通道触发置信度下限
@@ -55,6 +57,8 @@ class Config:
     vad_speech_min_sec: float = 0.5         # 最短有效语音，过滤误触
     vad_silence_end_sec: float = 1.2        # 静音多久判定说话结束
     tts_mute_tail_sec: float = 0.2          # TTS 结束后 ASR 额外静默（消余音）
+    barge_in_enabled: bool = True           # TTS 播报时检测用户说话并打断
+    barge_in_threshold_mult: float = 1.35   # 打断阈值 = 静音阈值 × 此系数
 
     # ── 全局播报频率上限（硬限制）────────────────────────────────────
     global_tts_min_interval: float = 2.0    # 任意两次被动播报之间至少间隔（秒）
@@ -64,8 +68,47 @@ class Config:
 _config: Config | None = None
 
 
+def _env_bool(name: str) -> bool | None:
+    raw = os.getenv(name)
+    if raw is None:
+        return None
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
+def _apply_env(cfg: Config) -> None:
+    """从 .env / 环境变量覆盖配置（load_dotenv 后调用）。"""
+    if v := os.getenv("NITROGEN_SERVER"):
+        cfg.nitrogen_server = v
+    mock = _env_bool("NITROGEN_MOCK")
+    if mock is not None:
+        cfg.nitrogen_mock = mock
+
+    if v := os.getenv("VLM_API_KEY"):
+        cfg.vlm_api_key = v.strip()
+    if v := os.getenv("VLM_API_BASE"):
+        cfg.vlm_api_base = v.strip()
+    if v := os.getenv("VLM_MODEL"):
+        cfg.vlm_model = v.strip()
+    if v := os.getenv("VLM_PROVIDER"):
+        cfg.vlm_provider = v.strip()
+    mock_vlm = _env_bool("VLM_MOCK")
+    if mock_vlm is not None:
+        cfg.vlm_mock = mock_vlm
+
+    fast_tts = _env_bool("FAST_TTS")
+    if fast_tts is not None:
+        cfg.fast_tts_enabled = fast_tts
+    elif cfg.nitrogen_mock:
+        cfg.fast_tts_enabled = False
+
+    barge = _env_bool("BARGE_IN")
+    if barge is not None:
+        cfg.barge_in_enabled = barge
+
+
 def get_config() -> Config:
     global _config
     if _config is None:
         _config = Config()
+        _apply_env(_config)
     return _config

@@ -33,8 +33,8 @@ class MockNitroGenClient:
 
     is_mock = True
 
-    def __init__(self, cycle_sec: float = 0.35):
-        self.cycle_sec = cycle_sec
+    def __init__(self, phase_sec: float = 2.5):
+        self.phase_sec = phase_sec
         self._frame_pipe: Optional["VideoFramePipe"] = None
         self._latest_signal: Optional[PerceptionSignal] = None
         self._signal_generation = 0
@@ -80,32 +80,42 @@ class MockNitroGenClient:
             self._signal_generation += 1
 
     def on_frame_pushed(self):
-        """推帧后立即更新模拟操控量"""
+        """推帧后按视频时间更新模拟操控量（不加速相位切换）。"""
         self._emit_demo_signal()
+
+    def _control_index(self, video_time: float) -> int:
+        return int(video_time / self.phase_sec) % len(_DEMO_CONTROLS)
 
     def _emit_demo_signal(self):
         pipe = self._frame_pipe
         video_time = pipe.video_position if pipe else 0.0
-        idx = self.inference_count % len(_DEMO_CONTROLS)
-        # 叠加视频时间正弦，使播放过程中信号连续变化
-        wobble = 0.15 * math.sin(video_time * 1.7)
+        idx = self._control_index(video_time)
+        wobble = 0.08 * math.sin(video_time * 1.3)
         steer, throttle, brake = _DEMO_CONTROLS[idx]
         steer = max(-1.0, min(1.0, steer + wobble))
 
         signal = signal_from_controls(steer, throttle, brake)
         with self._signal_lock:
+            if (
+                self._latest_signal is not None
+                and self._latest_signal.steer == signal.steer
+                and self._latest_signal.throttle == signal.throttle
+                and self._latest_signal.brake == signal.brake
+            ):
+                return
             self._latest_signal = signal
         self.inference_count += 1
 
     def _mock_loop(self, frame_pipe: "VideoFramePipe"):
+        """低频保活：无推帧时仍按视频时间刷新信号。"""
         while self._running:
             if self._paused:
                 time.sleep(0.05)
                 continue
 
             if frame_pipe.latest_frame is None:
-                time.sleep(0.02)
+                time.sleep(0.05)
                 continue
 
             self._emit_demo_signal()
-            time.sleep(self.cycle_sec)
+            time.sleep(0.5)

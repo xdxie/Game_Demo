@@ -130,7 +130,19 @@ class TTSQueue:
     def clear_and_stop(self, notify: bool = True):
         with self._lock:
             self._heap.clear()
-        self._interrupt(notify=notify)
+        self._interrupt(notify=notify, unmute_if_idle=True)
+
+    def barge_in_interrupt(self):
+        """用户说话打断当前播报，清空被动队列并立即恢复收音。"""
+        with self._lock:
+            self._heap = [
+                item for item in self._heap
+                if item.priority == Priority.USER_ANSWER
+            ]
+            heapq.heapify(self._heap)
+        self._interrupt(notify=True, unmute_if_idle=True)
+        if self._asr:
+            self._asr.force_unmute()
 
     # ── 内部调度 ──────────────────────────────────────────────────────
 
@@ -236,9 +248,10 @@ class TTSQueue:
 
         threading.Timer(self._gap, self._speak_next).start()
 
-    def _interrupt(self, notify: bool = True):
+    def _interrupt(self, notify: bool = True, unmute_if_idle: bool = False):
         with self._lock:
             interrupted_id = self._pending_done_id
+            heap_has_items = len(self._heap) > 0
         if notify and interrupted_id is not None and self._on_interrupt:
             try:
                 self._on_interrupt(interrupted_id)
@@ -255,6 +268,10 @@ class TTSQueue:
         with self._lock:
             self._is_speaking  = False
             self._current_item = None
+            still_has_items = len(self._heap) > 0
+
+        if self._asr and unmute_if_idle and not still_has_items:
+            self._asr.force_unmute()
 
     def _cancel_fallback_timer(self):
         if self._fallback_timer is not None:

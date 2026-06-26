@@ -176,6 +176,7 @@ class TestVLMDedupAndBusy:
             fast_history=fast_hist,
             conversation_history=conv,
             on_busy_change=busy_states.append,
+            min_busy_display_sec=0.0,
         )
         frame = MagicMock()
         event = make_event(etype=EventType.SUDDEN_DODGE, slow=True)

@@ -43,6 +43,7 @@ class VLMRequestManager:
         get_actions_timeline_text: Optional[Callable[[float], str]] = None,
         vlm_dedup_sec: float = 5.0,
         on_busy_change: Optional[Callable[[bool], None]] = None,
+        min_busy_display_sec: float = 0.45,
     ):
         self._tts       = tts_queue
         self._ctx       = context_buffer
@@ -54,6 +55,7 @@ class VLMRequestManager:
         self._get_actions_timeline_text = get_actions_timeline_text
         self._vlm_dedup_sec = vlm_dedup_sec
         self._on_busy_change = on_busy_change
+        self._min_busy_display_sec = min_busy_display_sec
 
         self._current_task: Optional[asyncio.Task] = None
         self._pending: Optional[dict] = None
@@ -119,6 +121,7 @@ class VLMRequestManager:
                 self._pending = task_args
 
     async def _run(self, args: dict):
+        busy_since = time.time()
         try:
             if not self._is_seek_generation_valid(args.get("utterance_seek_gen")):
                 logger.debug(
@@ -168,6 +171,8 @@ class VLMRequestManager:
 
         except Exception as e:
             logger.error("VLM call failed: %s", e)
+            if args["event"].type == EventType.USER_QUESTION:
+                self._tts.push("抱歉，我没听清，请再说一次。", Priority.USER_ANSWER)
 
         finally:
             if self._pending:
@@ -175,6 +180,10 @@ class VLMRequestManager:
                 self._pending = None
                 self._current_task = asyncio.create_task(self._run(pending))
             else:
+                elapsed = time.time() - busy_since
+                remain = self._min_busy_display_sec - elapsed
+                if remain > 0:
+                    await asyncio.sleep(remain)
                 self._current_task = None
                 self._notify_busy(False)
 

@@ -319,3 +319,27 @@ class TestSeekReset:
         time.sleep(0.3)
 
         assert results == []
+
+
+class TestBargeIn:
+    def test_barge_in_during_mute_triggers_callback(self, asr_handler):
+        fired = threading.Event()
+        asr_handler.on_barge_in = fired.set
+        asr_handler.mute()
+
+        for _ in range(8):
+            asr_handler.process_audio_chunk(LOUD_CHUNK)
+
+        assert fired.wait(timeout=1.0), "barge-in should fire during TTS mute"
+
+    def test_barge_in_not_fired_when_disabled(self, asr_handler):
+        asr_handler._barge_in_enabled = False
+        fired = threading.Event()
+        asr_handler.on_barge_in = fired.set
+        asr_handler.mute()
+
+        for _ in range(8):
+            asr_handler.process_audio_chunk(LOUD_CHUNK)
+
+        time.sleep(0.2)
+        assert not fired.is_set()
