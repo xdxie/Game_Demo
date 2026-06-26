@@ -120,6 +120,28 @@ python run.py
 
 等价命令：`uvicorn backend.main:app --host 0.0.0.0 --port 8000`
 
+#### Windows 常见启动错误：Whisper 包装错
+
+若 `python run.py` 报错类似：
+
+```
+File "...site-packages\whisper.py", line 69 ...
+TypeError: argument of type 'NoneType' is not iterable
+```
+
+说明安装了 **错误的** PyPI 包 `whisper`，而不是本项目需要的 **`openai-whisper`**。
+
+```powershell
+pip uninstall whisper -y
+pip install openai-whisper
+```
+
+验证（应输出 `...\site-packages\whisper\__init__.py`，而不是单个 `whisper.py`）：
+
+```powershell
+python -c "import whisper; print(whisper.__file__); print(hasattr(whisper,'load_model'))"
+```
+
 ### Step 3：打开前端页面
 
 浏览器访问：`http://localhost:8000`

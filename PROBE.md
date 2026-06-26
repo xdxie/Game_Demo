@@ -298,7 +298,8 @@ curl -X POST http://localhost:8000/probe/tts-echo
 ## 故障排查速查
 
 1. **整页打不开** → 确认 `python run.py` 在跑，端口 8000 未被占用。
-2. **TTS 步骤超时** → 检查 edge-tts 网络；查看后端日志是否有合成错误。
+2. **`python run.py` 导入 whisper 报 TypeError (NoneType)** → 误装了 PyPI 包 `whisper`，应改为 `pip uninstall whisper -y` 后 `pip install openai-whisper`（见 `README.md`）。
+3. **TTS 步骤超时** → 检查 edge-tts 网络；查看后端日志是否有合成错误。
 3. **perception 警告** → 正常，若未部署 NitroGen；要消警告需启动 ZMQ 服务。
 4. **ws-register 失败** → 若通过 Nginx 反代，需配置 WebSocket upgrade。
 5. **与主应用冲突** → 先停主应用会话或等探针跑完再开主页面。

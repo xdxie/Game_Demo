@@ -13,7 +13,23 @@ import threading
 from typing import Callable, Optional
 
 import numpy as np
-import whisper
+
+try:
+    import whisper
+except (ImportError, TypeError) as e:
+    raise ImportError(
+        "无法导入 OpenAI Whisper。常见原因：误装了 PyPI 上的错误包 `whisper`。\n"
+        "请依次执行：\n"
+        "  pip uninstall whisper -y\n"
+        "  pip install openai-whisper\n"
+        "验证：python -c \"import whisper; print(whisper.__file__)\" 应指向 site-packages/whisper/ 目录而非单个 whisper.py"
+    ) from e
+
+if not hasattr(whisper, "load_model"):
+    raise ImportError(
+        "当前 `whisper` 模块不是 openai-whisper（缺少 load_model）。\n"
+        "请执行：pip uninstall whisper -y && pip install openai-whisper"
+    )
 
 logger = logging.getLogger(__name__)
 
