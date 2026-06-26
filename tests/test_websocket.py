@@ -83,6 +83,7 @@ class TestWebSocketRegister:
     def test_primary_client_tts_done_accepted(self, ws_client):
         mock_session = MagicMock()
         mock_session._broadcast = AsyncMock()
+        mock_session.on_pause = AsyncMock()
         main_module._session = mock_session
 
         with ws_client.websocket_connect("/ws") as ws:
@@ -113,6 +114,31 @@ class TestWebSocketRegister:
                 }))
 
         mock_session.tts_queue.on_client_tts_done.assert_called_once_with(9)
+
+    def test_observer_binary_frame_ignored(self, ws_client):
+        mock_session = MagicMock()
+        main_module._session = mock_session
+
+        with ws_client.websocket_connect("/ws") as ws:
+            _register(ws, "observer")
+            # 伪造 0x02 视频帧
+            import struct
+            payload = struct.pack("<d", 12.5) + b"jpeg"
+            frame = bytes([0x02]) + payload
+            ws.send_bytes(frame)
+
+        mock_session.on_video_frame.assert_not_called()
+
+    def test_observer_seek_ignored(self, ws_client):
+        mock_session = MagicMock()
+        mock_session.on_seek = AsyncMock()
+        main_module._session = mock_session
+
+        with ws_client.websocket_connect("/ws") as ws:
+            _register(ws, "observer")
+            ws.send_text(json.dumps({"type": "seek", "time": 3.0}))
+
+        mock_session.on_seek.assert_not_called()
 
     def test_reassign_primary_from_players(self):
         _reset_ws_state()

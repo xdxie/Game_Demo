@@ -39,12 +39,16 @@ let playingMsgEl      = null;   // 正在播报的气泡元素
 let isSeeking     = false;
 let seekDebounce  = null;
 let isAnalysisRunning = false;
-let isPrimaryClient = true;
+let isPrimaryClient = false;
 let wsReconnectTimer = null;
 let wsReconnectAttempts = 0;
 const WS_RECONNECT_BASE_MS = 1000;
 const WS_RECONNECT_MAX_MS = 15000;
 const dismissedUtteranceIds = new Set();
+
+const clientMode = new URLSearchParams(location.search).get('mode') === 'observer'
+  ? 'observer'
+  : 'player';
 
 // ── DOM 引用 ──────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
@@ -75,39 +79,45 @@ fileInput.addEventListener('change', e => {
   // Fix 11：视频加载后通过 WebSocket 发元数据，不再需要本地路径
 });
 
-// ── 开始/停止分析 ─────────────────────────────────────────────────────
-btnStart.addEventListener('click', async () => {
-  if (!videoPlayer.src) {
-    alert('请先选择视频文件');
-    return;
-  }
-  try {
-    // Fix 11：不再传 video_path
-    const resp = await fetch('/start', { method: 'POST' });
-    const data = await resp.json();
-    if (data.error) { alert('启动失败：' + data.error); return; }
+// ── 开始/停止分析（player 模式）────────────────────────────────────────
+if (clientMode === 'player') {
+  btnStart.addEventListener('click', async () => {
+    if (!videoPlayer.src) {
+      alert('请先选择视频文件');
+      return;
+    }
+    try {
+      const resp = await fetch('/start', { method: 'POST' });
+      const data = await resp.json();
+      if (resp.status === 409) {
+        alert(data.error || '分析已在运行');
+        return;
+      }
+      if (data.error) { alert('启动失败：' + data.error); return; }
 
-    connectWebSocket();
-    startMicrophone();
-    isAnalysisRunning = true;
-    btnStart.style.display = 'none';
-    btnStop.style.display  = '';
-    videoPlayer.play();
-    addSystemMsg('分析已开始，持续收音中…');
-  } catch (err) {
-    alert('连接后端失败：' + err.message);
-  }
-});
+      isAnalysisRunning = true;
+      connectWebSocket();
+      btnStart.style.display = 'none';
+      btnStop.style.display  = '';
+      videoPlayer.play();
+      addSystemMsg('分析已开始，等待主连接确认…');
+    } catch (err) {
+      alert('连接后端失败：' + err.message);
+    }
+  });
 
-btnStop.addEventListener('click', async () => {
-  isAnalysisRunning = false;
-  clearWsReconnectTimer();
-  await fetch('/stop', { method: 'POST' });
-  disconnectAll();
-  btnStart.style.display = '';
-  btnStop.style.display  = 'none';
-  addSystemMsg('分析已停止');
-});
+  btnStop.addEventListener('click', async () => {
+    isAnalysisRunning = false;
+    clearWsReconnectTimer();
+    await fetch('/stop', { method: 'POST' });
+    disconnectAll();
+    btnStart.style.display = '';
+    btnStop.style.display  = 'none';
+    addSystemMsg('分析已停止');
+  });
+} else {
+  initObserverMode();
+}
 
 btnClearChat.addEventListener('click', () => {
   chatMessages.innerHTML = '';
@@ -154,14 +164,32 @@ function sendVideoReadyIfNeeded() {
   }
 }
 
+/** 主连接接管或重连后，将当前视频进度同步给后端 */
+function syncPrimaryStateToServer() {
+  if (!isPrimaryClient || !ws || ws.readyState !== WebSocket.OPEN) return;
+  sendVideoReadyIfNeeded();
+  isSeeking = true;
+  ws.send(JSON.stringify({ type: 'seek', time: videoPlayer.currentTime }));
+  ws.send(JSON.stringify({
+    type: 'playback',
+    action: (videoPlayer.paused || videoPlayer.ended) ? 'pause' : 'resume',
+  }));
+}
+
 function applySessionRole(role) {
+  const wasPrimary = isPrimaryClient;
   isPrimaryClient = (role === 'primary');
   if (isPrimaryClient) {
-    micStatus.textContent = '🎤 持续收音中';
-    micStatus.className = '';
-    sendVideoReadyIfNeeded();
+    if (!mediaStream) {
+      startMicrophone();
+    }
+    syncPrimaryStateToServer();
     startFrameCapture();
+    if (!wasPrimary) {
+      addSystemMsg('已接管主连接');
+    }
   } else {
+    stopMicrophone();
     micStatus.textContent = '👁 旁观（只读）';
     micStatus.className = '';
     stopFrameCapture();
@@ -177,7 +205,7 @@ function connectWebSocket() {
 
   ws.onopen = () => {
     console.log('WebSocket connected');
-    ws.send(JSON.stringify({ type: 'register', role: 'player' }));
+    ws.send(JSON.stringify({ type: 'register', role: clientMode }));
   };
 
   ws.onclose = () => {
@@ -224,6 +252,9 @@ function handleServerMessage(msg) {
 
     case 'primary_changed':
       addSystemMsg('主连接已切换');
+      if (isPrimaryClient) {
+        syncPrimaryStateToServer();
+      }
       break;
 
     case 'tts':
@@ -582,6 +613,7 @@ function clearPlayingHighlight() {
 }
 
 function updateMicStatus(state) {
+  if (!isPrimaryClient) return;
   const labels = {
     listening:  ['🎤 持续收音中', ''],
     recording:  ['🎤● 正在说话', 'recording'],
@@ -619,6 +651,67 @@ function escapeHtml(str) {
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+function stopMicrophone() {
+  if (audioProcessor) {
+    audioProcessor.disconnect();
+    audioProcessor = null;
+  }
+  if (audioContext) {
+    audioContext.close();
+    audioContext = null;
+  }
+  if (mediaStream) {
+    mediaStream.getTracks().forEach(t => t.stop());
+    mediaStream = null;
+  }
+}
+
+function initObserverMode() {
+  document.querySelector('.title').textContent = 'NitroGen 游戏语音教练（旁观）';
+  const linkObs = $('link-observer');
+  if (linkObs) linkObs.style.display = 'none';
+  uploadArea.innerHTML = `
+    <p>旁观模式：实时查看 AI 对话与 NitroGen 感知信号</p>
+    <p class="hint">请先在主页面开始分析，再点击连接</p>
+    <button type="button" id="btn-attach-observer" class="btn btn-primary">连接会话</button>
+    <button type="button" id="btn-detach-observer" class="btn" style="display:none;margin-left:8px">断开</button>
+  `;
+  playerArea.style.display = 'none';
+  btnClearChat.style.display = 'none';
+  micStatus.textContent = '👁 旁观';
+
+  $('btn-attach-observer').addEventListener('click', attachAsObserver);
+  $('btn-detach-observer').addEventListener('click', detachObserver);
+}
+
+async function attachAsObserver() {
+  try {
+    const resp = await fetch('/session/status');
+    const data = await resp.json();
+    if (!data.running) {
+      alert('当前没有运行中的分析会话，请先在主页面点击「开始分析」');
+      return;
+    }
+    isAnalysisRunning = true;
+    connectWebSocket();
+    $('btn-attach-observer').style.display = 'none';
+    $('btn-detach-observer').style.display = '';
+    addSystemMsg('正在连接旁观会话…');
+  } catch (err) {
+    alert('连接失败：' + err.message);
+  }
+}
+
+function detachObserver() {
+  isAnalysisRunning = false;
+  clearWsReconnectTimer();
+  if (ws) { ws.close(); ws = null; }
+  $('btn-attach-observer').style.display = '';
+  $('btn-detach-observer').style.display = 'none';
+  micStatus.textContent = '👁 旁观';
+  addSystemMsg('已断开旁观连接');
+}
+
 function disconnectAll() {
   isAnalysisRunning = false;
   clearWsReconnectTimer();
@@ -626,9 +719,7 @@ function disconnectAll() {
   stopTTSAudio();
   dismissedUtteranceIds.clear();
   if (ws)              { ws.close(); ws = null; }
-  if (audioProcessor)  { audioProcessor.disconnect(); audioProcessor = null; }
-  if (audioContext)    { audioContext.close(); audioContext = null; }
-  if (mediaStream)     { mediaStream.getTracks().forEach(t => t.stop()); mediaStream = null; }
+  stopMicrophone();
   dotNitrogen.className = 'dot';
   dotVLM.className      = 'dot';
   ttsStatus.textContent = '🔇 待机';

@@ -29,7 +29,7 @@ import uvicorn
 from dotenv import load_dotenv
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 load_dotenv()
@@ -477,6 +477,16 @@ async def index():
     return HTMLResponse("<h1>NitroGen Game Coach</h1>")
 
 
+@app.get("/session/status")
+async def session_status():
+    """查询当前分析会话是否在运行（旁观模式连接前检查）"""
+    running = _session is not None and _session._running
+    return {
+        "running": running,
+        "has_primary": _primary_ws is not None,
+    }
+
+
 @app.post("/start")
 async def start_session():
     """
@@ -484,6 +494,14 @@ async def start_session():
     启动分析会话后，等待前端通过 WebSocket 发送视频帧。
     """
     global _session
+    if _session is not None and _session._running:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "status": "already_running",
+                "error": "分析会话已在运行，请使用旁观模式或先停止当前会话",
+            },
+        )
     if _session:
         await _session.stop()
     _session = GameSession()
@@ -611,6 +629,11 @@ async def websocket_endpoint(ws: WebSocket):
 
         if was_primary and _primary_ws is not None:
             await _send_session_role(_primary_ws)
+        if was_primary and _primary_ws is None and _session is not None:
+            try:
+                await _session.on_pause()
+            except Exception as e:
+                logger.error("Pause after primary lost: %s", e)
         if was_primary and _session is not None:
             await _session._broadcast({"type": "primary_changed"})
 

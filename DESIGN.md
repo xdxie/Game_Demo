@@ -1162,6 +1162,8 @@ byte[5:]   = MP3 bytes
 
 **主连接模型**：首个注册为 `player` 的客户端成为主连接，负责推帧、麦克风、seek 与 `tts_done`。`observer` 仅接收 JSON 字幕/状态。主连接断开后，下一个 `player` 被提升为主连接（收到 `session_role: primary` 与全局 `primary_changed`）。
 
+主连接接管或 WS 重连时，前端应发送 `video_ready` + `seek`（当前 `currentTime`）+ `playback`（pause/resume），以同步后端时间轴。旁观入口：`/?mode=observer`。
+
 #### JSON 消息（服务端 → 客户端）
 
 ```json
