@@ -527,7 +527,7 @@ class ConversationHistory:
         return messages
 
     def clear(self):
-        """视频 seek 时可选清空（见 5.6）"""
+        """用户主动清空或收到 clear_conversation 时调用；seek 时保留（见 5.6）"""
         self._turns.clear()
 ```
 
@@ -720,17 +720,17 @@ class TTSEngine:
 **前端 TTS 播放**（`frontend/app.js`）：
 
 ```javascript
-ws.onmessage = e => {
-    if (e.data instanceof ArrayBuffer) {
-        // 服务端→客户端 binary = TTS MP3 音频
-        const blob  = new Blob([e.data], { type: 'audio/mpeg' });
-        const audio = new Audio(URL.createObjectURL(blob));
-        audio.onended = () => ws.send(JSON.stringify({type:'tts_done'}));
-        audio.play();
-    }
-    // ...JSON 事件处理
-};
+// 解析 0x03 帧：byte[1:5]=utterance_id，byte[5:]=MP3
+const parsed = parseTTSBinaryFrame(e.data);
+const audio = new Audio(URL.createObjectURL(new Blob([parsed.mp3], {type:'audio/mpeg'})));
+audio.onended = () => ws.send(JSON.stringify({
+    type: 'tts_done',
+    utterance_id: parsed.utteranceId,
+}));
+audio.play();
 ```
+
+仅主连接（`session_role: primary`）接收 MP3 并回传 `tts_done`。
 
 ---
 
@@ -741,9 +741,9 @@ ws.onmessage = e => {
 **Fix 13 变化**：`_flush()` 改为非阻塞，将音频放入 `Queue` 后立即返回。独立的转写线程持续从队列消费，运行 `whisper.transcribe()`。VAD 与 Whisper 并发运行，不会漏捕连续语音。
 
 ```
-WebSocket 协程          VAD 线程（即 WebSocket 协程）       转写线程
-       │                          │                          │
-       │── process_audio_chunk() →│                          │
+WebSocket 协程（VAD）              转写线程
+       │                          │
+       │── process_audio_chunk() →│
        │                          │── amplitude > threshold  │
        │                          │── 静音超时               │
        │                          │── _flush()               │
@@ -1138,25 +1138,39 @@ byte[5:]   = MP3 bytes
 #### JSON 消息（客户端 → 服务端）
 
 ```json
-// 视频元数据（视频加载后立即发送，Fix 11）
+// 连接后首条消息：注册角色（首个 player 成为主连接）
+{ "type": "register", "role": "player" | "observer" }
+
+// 视频元数据（主连接在 video_ready 前需已完成 register）
 { "type": "video_ready", "duration": 120.5 }
 
-// 视频进度同步
+// 视频进度同步（仅主连接）
 { "type": "seek",     "time": 12.5 }
 
-// 暂停/继续
+// 暂停/继续（仅主连接）
 { "type": "playback", "action": "pause" | "resume" }
 
-// 视频自然结束
+// 视频自然结束（仅主连接）
 { "type": "video_ended" }
 
-// TTS 播放完毕（精确时序信号，主路径）
+// 清空多轮对话历史（仅主连接）
+{ "type": "clear_conversation" }
+
+// TTS 播放完毕（仅主连接）
 { "type": "tts_done", "utterance_id": 42 }
 ```
+
+**主连接模型**：首个注册为 `player` 的客户端成为主连接，负责推帧、麦克风、seek 与 `tts_done`。`observer` 仅接收 JSON 字幕/状态。主连接断开后，下一个 `player` 被提升为主连接（收到 `session_role: primary` 与全局 `primary_changed`）。
 
 #### JSON 消息（服务端 → 客户端）
 
 ```json
+// 注册应答：告知本连接是否为主连接
+{ "type": "session_role", "role": "primary" | "observer" }
+
+// 主连接切换广播（所有客户端）
+{ "type": "primary_changed" }
+
 // 语音播报开始（同步显示字幕，在 MP3 帧之前发送）
 {
   "type": "tts",
@@ -1175,6 +1189,12 @@ byte[5:]   = MP3 bytes
 
 // ASR 麦克风状态（驱动前端状态栏）
 { "type": "asr_state", "state": "listening" | "recording" | "processing" | "muted" }
+
+// VLM 忙闲（驱动 dot-vlm）
+{ "type": "vlm_state", "busy": true | false }
+
+// 对话历史已清空
+{ "type": "conversation_cleared" }
 
 // 系统状态
 { "type": "status", "state": "started" | "video_ready", "duration": 120.5 }
@@ -1249,8 +1269,11 @@ class Config:
     vlm_max_tokens:       int   = 120
     context_window_sec:   float = 15.0      # 上下文缓冲区时间窗口
     slow_max_queue_age:   float = 8.0       # 慢系统结果的有效期
+    vlm_dedup_sec:        float = 5.0       # 同类事件 VLM 去重窗口（秒）
 
     # TTS
+    tts_voice:               str   = "zh-CN-YunxiNeural"
+    tts_rate:                str   = "+20%"
     tts_inter_utterance_gap: float = 0.8   # 两条语音之间的间隔
     tts_done_fallback_margin: float = 1.0  # 前端未回 tts_done 时的额外宽限
     tts_synthesis_timeout_sec: float = 15.0  # edge-tts 合成超时
@@ -1371,39 +1394,39 @@ python scripts/serve.py /path/to/ng.pt --port 5555 --ctx 1
 
 ### Phase 1：基础管道（可独立验证）
 
-- [ ] VideoFramePipe：视频帧提取，帧率控制
-- [ ] NitroGenClient：ZMQ 通信，异步推理
-- [ ] parser.py：action vector → PerceptionSignal
-- [ ] 验证：打印每帧的感知信号，确认输出合理
+- [x] VideoFramePipe：视频帧提取，帧率控制（已由前端 FrameBuffer 推帧替代）
+- [x] NitroGenClient：ZMQ 通信，异步推理
+- [x] parser.py：action vector → PerceptionSignal
+- [x] 验证：打印每帧的感知信号，确认输出合理
 
 ### Phase 2：快系统
 
-- [ ] ActionFilter：突变检测，冷却机制
-- [ ] templates.py：事件 → 文本
-- [ ] TTSQueue + edge-tts：优先级队列，打断
-- [ ] 验证：视频播放时能听到稀疏的提示词
+- [x] ActionFilter：突变检测，冷却机制
+- [x] templates.py：事件 → 文本
+- [x] TTSQueue + edge-tts：优先级队列，打断
+- [x] 验证：视频播放时能听到稀疏的提示词
 
 ### Phase 3：慢系统
 
-- [ ] ContextBuffer：近期动作序列维护
-- [ ] VLMClient：Claude API + 图像输入
-- [ ] SlowTrigger：并行触发逻辑，结果入队
-- [ ] 验证：PATTERN_COMPLETED 后能听到有意义的总结
+- [x] ContextBuffer：近期动作序列维护
+- [x] VLMClient：Claude API + 图像输入
+- [x] SlowTrigger：并行触发逻辑，结果入队
+- [x] 验证：PATTERN_COMPLETED 后能听到有意义的总结
 
 ### Phase 4：用户交互
 
-- [ ] ASRHandler：Whisper + VAD，持续收音
-- [ ] TTSQueue ↔ ASRHandler 联动：播报时 mute，结束后 unmute
-- [ ] 用户提问流：识别完成 → USER_QUESTION 事件 → VLM → 最高优先级播报
-- [ ] 前端麦克风状态指示（收音中 / 检测到语音 / TTS中暂停）
-- [ ] 对话历史：多轮问答上下文
+- [x] ASRHandler：Whisper + VAD，持续收音
+- [x] TTSQueue ↔ ASRHandler 联动：播报时 mute，结束后 unmute
+- [x] 用户提问流：识别完成 → USER_QUESTION 事件 → VLM → 最高优先级播报
+- [x] 前端麦克风状态指示（收音中 / 检测到语音 / TTS中暂停）
+- [x] 对话历史：多轮问答上下文
 
 ### Phase 5：前端
 
-- [ ] HTML 页面：视频播放器 + 对话面板
-- [ ] WebSocket 客户端
-- [ ] 麦克风采集（Web Audio API）
-- [ ] 上传视频文件流程
+- [x] HTML 页面：视频播放器 + 对话面板
+- [x] WebSocket 客户端（register 握手、自动重连、主连接 TTS）
+- [x] 麦克风采集（AudioWorklet + 16kHz 重采样）
+- [x] 上传视频文件流程
 
 ---
 

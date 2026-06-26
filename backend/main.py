@@ -68,17 +68,68 @@ if FRONTEND_DIR.exists():
 
 _session: Optional["GameSession"] = None
 _ws_clients: list[WebSocket] = []
+_ws_roles: dict[WebSocket, str] = {}   # "player" | "observer"
 _primary_ws: Optional[WebSocket] = None
 
 
-def _remove_dead_ws_clients(dead: list[WebSocket]) -> None:
-    """移除断开的 WebSocket；若主连接失效则提升下一个客户端。"""
+def _reassign_primary_from_players() -> Optional[WebSocket]:
+    """从仍在线的 player 角色连接中选举主连接。"""
     global _primary_ws
+    if _primary_ws is not None and _primary_ws in _ws_clients:
+        return _primary_ws
+    _primary_ws = next(
+        (w for w in _ws_clients if _ws_roles.get(w) == "player"),
+        None,
+    )
+    return _primary_ws
+
+
+def _remove_dead_ws_clients(dead: list[WebSocket]) -> None:
+    """移除断开的 WebSocket；若主连接失效则提升下一个 player。"""
+    global _primary_ws
+    lost_primary = False
     for ws in dead:
         if ws in _ws_clients:
             _ws_clients.remove(ws)
-    if _primary_ws is not None and _primary_ws not in _ws_clients:
-        _primary_ws = _ws_clients[0] if _ws_clients else None
+        if _primary_ws is ws:
+            lost_primary = True
+        _ws_roles.pop(ws, None)
+    if lost_primary or (_primary_ws is not None and _primary_ws not in _ws_clients):
+        _primary_ws = None
+        _reassign_primary_from_players()
+
+
+async def _send_session_role(ws: WebSocket) -> None:
+    role = "primary" if ws is _primary_ws else "observer"
+    try:
+        await ws.send_json({"type": "session_role", "role": role})
+    except Exception:
+        pass
+
+
+async def _handle_register(ws: WebSocket, data: dict) -> None:
+    """客户端注册角色：首个 player 成为主连接，其余为旁观。"""
+    global _primary_ws
+    role = data.get("role", "observer")
+    if role not in ("player", "observer"):
+        role = "observer"
+    _ws_roles[ws] = role
+
+    if role == "player" and (
+        _primary_ws is None or _primary_ws not in _ws_clients
+    ):
+        _primary_ws = ws
+    elif _primary_ws is ws and role == "observer":
+        _primary_ws = None
+        _reassign_primary_from_players()
+
+    await _send_session_role(ws)
+    logger.info(
+        "WS register role=%s primary=%s (total=%d)",
+        role,
+        ws is _primary_ws,
+        len(_ws_clients),
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -464,14 +515,12 @@ async def websocket_endpoint(ws: WebSocket):
       byte[0]=0x03  TTS 音频（byte[1:5]=uint32 LE utterance_id，byte[5:]=MP3）
 
     JSON（双向）：
-      客户端发：seek / playback / video_ready / tts_done
-      服务端发：tts / tts_end / tts_interrupt / asr_state / perception / status / seek_done / video_ended
+      客户端发：register / seek / playback / video_ready / tts_done / clear_conversation
+      服务端发：session_role / primary_changed / tts / tts_end / ...
     """
     global _primary_ws
     await ws.accept()
     _ws_clients.append(ws)
-    if _primary_ws is None:
-        _primary_ws = ws
     logger.info("WebSocket connected (total: %d)", len(_ws_clients))
 
     try:
@@ -516,6 +565,10 @@ async def websocket_endpoint(ws: WebSocket):
                     data = json.loads(msg["text"])
                     mtype = data.get("type")
 
+                    if mtype == "register":
+                        await _handle_register(ws, data)
+                        continue
+
                     if ws is not _primary_ws and mtype not in (None,):
                         logger.debug("Ignored %s from non-primary client", mtype)
                         continue
@@ -547,11 +600,19 @@ async def websocket_endpoint(ws: WebSocket):
                     logger.error("WS JSON error: %s", e)
 
     finally:
+        was_primary = (_primary_ws is ws)
         if ws in _ws_clients:
             _ws_clients.remove(ws)
+        _ws_roles.pop(ws, None)
         if _primary_ws is ws:
-            _primary_ws = _ws_clients[0] if _ws_clients else None
+            _primary_ws = None
+            _reassign_primary_from_players()
         logger.info("WebSocket disconnected (total: %d)", len(_ws_clients))
+
+        if was_primary and _primary_ws is not None:
+            await _send_session_role(_primary_ws)
+        if was_primary and _session is not None:
+            await _session._broadcast({"type": "primary_changed"})
 
 
 if __name__ == "__main__":

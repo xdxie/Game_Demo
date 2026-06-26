@@ -4,8 +4,8 @@
  * Fix 11：视频帧由前端 canvas 捕获后通过 WebSocket 推送给后端
  *   - setInterval 100ms（10fps），drawImage → toBlob(JPEG) → 二进制 WS 消息
  *   - 消息格式：[0x02][8字节 float64 LE 视频时间][JPEG bytes]
- *   - 视频加载完成后发送 {"type":"video_ready","duration":N}
- *   - 不再需要传本地文件路径给后端（解决 README 问题2）
+ *   - 连接后发送 register(player)，收到 session_role: primary 后推帧/收音
+ *   - 断线后指数退避自动重连（分析进行中时）
  *
  * Fix 13（前端无感知，后端已处理）
  *
@@ -38,6 +38,12 @@ let pendingUtteranceId = null;  // 已收到 tts JSON、等待 MP3 的 id
 let playingMsgEl      = null;   // 正在播报的气泡元素
 let isSeeking     = false;
 let seekDebounce  = null;
+let isAnalysisRunning = false;
+let isPrimaryClient = true;
+let wsReconnectTimer = null;
+let wsReconnectAttempts = 0;
+const WS_RECONNECT_BASE_MS = 1000;
+const WS_RECONNECT_MAX_MS = 15000;
 const dismissedUtteranceIds = new Set();
 
 // ── DOM 引用 ──────────────────────────────────────────────────────────
@@ -83,6 +89,7 @@ btnStart.addEventListener('click', async () => {
 
     connectWebSocket();
     startMicrophone();
+    isAnalysisRunning = true;
     btnStart.style.display = 'none';
     btnStop.style.display  = '';
     videoPlayer.play();
@@ -93,6 +100,8 @@ btnStart.addEventListener('click', async () => {
 });
 
 btnStop.addEventListener('click', async () => {
+  isAnalysisRunning = false;
+  clearWsReconnectTimer();
   await fetch('/stop', { method: 'POST' });
   disconnectAll();
   btnStart.style.display = '';
@@ -114,36 +123,85 @@ videoPlayer.addEventListener('loadedmetadata', () => {
 });
 
 // ── WebSocket ─────────────────────────────────────────────────────────
+function clearWsReconnectTimer() {
+  if (wsReconnectTimer) {
+    clearTimeout(wsReconnectTimer);
+    wsReconnectTimer = null;
+  }
+}
+
+function scheduleWsReconnect() {
+  if (!isAnalysisRunning) return;
+  clearWsReconnectTimer();
+  const delay = Math.min(
+    WS_RECONNECT_BASE_MS * Math.pow(2, wsReconnectAttempts),
+    WS_RECONNECT_MAX_MS,
+  );
+  wsReconnectAttempts += 1;
+  addSystemMsg(`连接断开，${(delay / 1000).toFixed(0)}s 后重连…`);
+  wsReconnectTimer = setTimeout(() => {
+    if (isAnalysisRunning) connectWebSocket();
+  }, delay);
+}
+
+function sendVideoReadyIfNeeded() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  if (videoPlayer.duration && isFinite(videoPlayer.duration)) {
+    ws.send(JSON.stringify({
+      type: 'video_ready',
+      duration: videoPlayer.duration,
+    }));
+  }
+}
+
+function applySessionRole(role) {
+  isPrimaryClient = (role === 'primary');
+  if (isPrimaryClient) {
+    micStatus.textContent = '🎤 持续收音中';
+    micStatus.className = '';
+    sendVideoReadyIfNeeded();
+    startFrameCapture();
+  } else {
+    micStatus.textContent = '👁 旁观（只读）';
+    micStatus.className = '';
+    stopFrameCapture();
+    stopTTSAudio();
+  }
+}
+
 function connectWebSocket() {
+  clearWsReconnectTimer();
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
   ws = new WebSocket(`${protocol}//${location.host}/ws`);
   ws.binaryType = 'arraybuffer';   // Fix 14：接收 ArrayBuffer 而非 Blob
 
   ws.onopen = () => {
     console.log('WebSocket connected');
-    micStatus.textContent = '🎤 持续收音中';
-    micStatus.className   = '';
-
-    // Fix 11：连接建立后立即通知后端视频时长
-    if (videoPlayer.duration && isFinite(videoPlayer.duration)) {
-      ws.send(JSON.stringify({
-        type: 'video_ready',
-        duration: videoPlayer.duration,
-      }));
-    }
-
-    // 启动帧捕获
-    startFrameCapture();
+    ws.send(JSON.stringify({ type: 'register', role: 'player' }));
   };
 
   ws.onclose = () => {
     console.log('WebSocket closed');
-    micStatus.textContent = '🎤 未连接';
     stopFrameCapture();
+    if (!isAnalysisRunning) {
+      micStatus.textContent = '🎤 未连接';
+      return;
+    }
+    if (!isPrimaryClient) {
+      micStatus.textContent = '👁 旁观（只读）';
+    } else {
+      micStatus.textContent = '🎤 未连接';
+    }
+    scheduleWsReconnect();
+  };
+
+  ws.onerror = () => {
+    console.warn('WebSocket error');
   };
 
   ws.onmessage = e => {
     if (e.data instanceof ArrayBuffer) {
+      if (!isPrimaryClient) return;
       const parsed = parseTTSBinaryFrame(e.data);
       if (parsed) {
         playTTSAudio(parsed.mp3, parsed.utteranceId);
@@ -158,6 +216,15 @@ function connectWebSocket() {
 
 function handleServerMessage(msg) {
   switch (msg.type) {
+
+    case 'session_role':
+      wsReconnectAttempts = 0;
+      applySessionRole(msg.role);
+      break;
+
+    case 'primary_changed':
+      addSystemMsg('主连接已切换');
+      break;
 
     case 'tts':
       addChatMessage(msg.channel, msg.text, msg.video_time, msg.utterance_id);
@@ -237,7 +304,7 @@ function stopFrameCapture() {
 }
 
 function captureAndSendFrame() {
-  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  if (!isPrimaryClient || !ws || ws.readyState !== WebSocket.OPEN) return;
   if (videoPlayer.paused || videoPlayer.ended || videoPlayer.readyState < 2) return;
 
   // 将当前视频帧绘制到 256×256 canvas
@@ -311,6 +378,7 @@ function dismissUtterance(utteranceId) {
 }
 
 function sendTtsDone(utteranceId) {
+  if (!isPrimaryClient) return;
   if (ws && ws.readyState === WebSocket.OPEN && utteranceId != null) {
     ws.send(JSON.stringify({ type: 'tts_done', utterance_id: utteranceId }));
   }
@@ -398,7 +466,7 @@ async function startMicrophone() {
         },
       });
       audioProcessor.port.onmessage = e => {
-        if (!ws || ws.readyState !== WebSocket.OPEN) return;
+        if (!isPrimaryClient || !ws || ws.readyState !== WebSocket.OPEN) return;
         const pcm16 = float32ToPCM16(e.data);
         const msg = new Uint8Array(1 + pcm16.byteLength);
         msg[0] = 0x01;
@@ -427,7 +495,7 @@ function startMicrophoneScriptProcessor(source, frameSize) {
   audioProcessor = audioContext.createScriptProcessor(bufferSize, 1, 1);
 
   audioProcessor.onaudioprocess = e => {
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    if (!isPrimaryClient || !ws || ws.readyState !== WebSocket.OPEN) return;
     const float32 = e.inputBuffer.getChannelData(0);
     const pcm16 = float32ToPCM16(
       audioContext.sampleRate === 16000
@@ -552,6 +620,8 @@ function escapeHtml(str) {
 }
 
 function disconnectAll() {
+  isAnalysisRunning = false;
+  clearWsReconnectTimer();
   stopFrameCapture();
   stopTTSAudio();
   dismissedUtteranceIds.clear();
