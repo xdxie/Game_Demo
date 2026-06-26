@@ -415,7 +415,12 @@ function syncPrimaryStateToServer() {
   sendVideoReadyIfNeeded();
   isSeeking = true;
   ws.send(JSON.stringify({ type: 'seek', time: videoPlayer.currentTime }));
-  const shouldResume = isAnalysisRunning && !videoPlayer.paused && !videoPlayer.ended;
+  // 分析进行中一律 resume，避免误 pause 导致画面帧/ASR 链路卡住
+  if (isAnalysisRunning) {
+    ws.send(JSON.stringify({ type: 'playback', action: 'resume' }));
+    return;
+  }
+  const shouldResume = !videoPlayer.paused && !videoPlayer.ended;
   ws.send(JSON.stringify({
     type: 'playback',
     action: shouldResume ? 'resume' : 'pause',
@@ -433,11 +438,11 @@ function requestAsrState() {
   }
 }
 
-function applySessionRole(role) {
+async function applySessionRole(role) {
   const wasPrimary = isPrimaryClient;
   isPrimaryClient = (role === 'primary');
   if (isPrimaryClient) {
-    ensureMicrophoneReady();
+    await ensureMicrophoneReady();
     syncPrimaryStateToServer();
     startFrameCapture();
     requestAsrState();
@@ -460,9 +465,6 @@ async function ensureMicrophoneReady() {
       await startMicrophone();
     } else if (audioContext.state === 'suspended') {
       await audioContext.resume();
-    }
-    if (isAnalysisRunning) {
-      updateMicStatus('listening');
     }
     requestAsrState();
   } catch (err) {
@@ -533,7 +535,7 @@ function handleServerMessage(msg) {
 
     case 'session_role':
       wsReconnectAttempts = 0;
-      applySessionRole(msg.role);
+      applySessionRole(msg.role).catch(err => console.error('applySessionRole:', err));
       break;
 
     case 'primary_changed':
@@ -597,10 +599,7 @@ function handleServerMessage(msg) {
       break;
 
     case 'status':
-      if (msg.state === 'started') {
-        dotNitrogen.className = 'dot loading';
-        if (isPrimaryClient) updateMicStatus('listening');
-      }
+      if (msg.state === 'started') dotNitrogen.className = 'dot loading';
       if (msg.state === 'user_question_no_frame') {
         addSystemMsg('画面未就绪，暂时无法回答，请稍后再问');
       }
@@ -788,7 +787,7 @@ async function startMicrophone() {
 
     const source = audioContext.createMediaStreamSource(mediaStream);
     const micGain = audioContext.createGain();
-    micGain.gain.value = 2.0;
+    micGain.gain.value = 3.0;
     const frameSize = Math.round(audioContext.sampleRate * 0.1);
 
     if (audioContext.audioWorklet) {
@@ -801,7 +800,11 @@ async function startMicrophone() {
       });
       audioProcessor.port.onmessage = e => {
         if (!isPrimaryClient || !ws || ws.readyState !== WebSocket.OPEN) return;
-        const pcm16 = float32ToPCM16(e.data);
+        const samples = e.data instanceof Float32Array
+          ? e.data
+          : new Float32Array(e.data);
+        if (!samples.length) return;
+        const pcm16 = float32ToPCM16(samples);
         const msg = new Uint8Array(1 + pcm16.byteLength);
         msg[0] = 0x01;
         msg.set(new Uint8Array(pcm16), 1);
@@ -818,9 +821,6 @@ async function startMicrophone() {
     }
 
     console.log('Microphone started @', audioContext.sampleRate, 'Hz');
-    if (isAnalysisRunning) {
-      updateMicStatus('listening');
-    }
     requestAsrState();
   } catch (err) {
     console.error('Mic error:', err);

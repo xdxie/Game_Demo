@@ -294,6 +294,7 @@ class GameSession:
         self._running = False
         self._analysis_paused = False
         self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._pcm_chunk_count = 0
 
     def _actions_timeline_text(self, t_sec: float) -> str:
         return self.action_timeline.summary_near(t_sec)
@@ -489,16 +490,14 @@ class GameSession:
             self._analysis_paused = was_analysis_paused
 
     async def on_pause(self):
-        """暂停视频分析；麦克风保持收音（仅 TTS 播报时 mute）。"""
+        """暂停视频分析；麦克风与画面帧缓冲保持可用（便于暂停时提问）。"""
         self._analysis_paused = True
-        self.frame_buffer.pause()
         self.nitrogen.pause()
         self.tts_queue.clear_and_stop()
         await self.vlm_manager.cancel_all()
 
     async def on_resume(self):
         self._analysis_paused = False
-        self.frame_buffer.resume()
         self.nitrogen.resume()
         self.asr_handler.force_unmute()
 
@@ -528,6 +527,11 @@ class GameSession:
 
     def on_audio_chunk(self, pcm_bytes: bytes):
         """Fix 13：ASR 音频（非阻塞，立即返回）"""
+        self._pcm_chunk_count += 1
+        if self._pcm_chunk_count == 1:
+            logger.info("ASR: first PCM chunk received (%d bytes)", len(pcm_bytes))
+        elif self._pcm_chunk_count % 200 == 0:
+            logger.debug("ASR: %d PCM chunks received", self._pcm_chunk_count)
         self.asr_handler.process_audio_chunk(pcm_bytes)
 
     # ── TTS 回调 ──────────────────────────────────────────────────────
@@ -654,6 +658,13 @@ async def probe_health():
             len(_action_timeline.key_actions) if _action_timeline else 0
         ),
         "prepare": warmup.get_status(),
+        "pcm_chunks": (
+            _session._pcm_chunk_count if _session is not None else 0
+        ),
+        "asr_state": (
+            _session.asr_handler.activity_state
+            if _session is not None else None
+        ),
         "session_running": _session is not None and _session._running,
         "ws_clients": len(_ws_clients),
         "has_primary": _primary_ws is not None,

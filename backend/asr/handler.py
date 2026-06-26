@@ -281,7 +281,7 @@ class ASRHandler:
         abs_a = np.abs(audio.astype(np.float64))
         peak = float(abs_a.max())
         rms = float(np.sqrt(np.mean(abs_a ** 2)))
-        return max(rms, peak * 0.12)
+        return max(rms, peak * 0.08)
 
     def _set_activity(self, state: str):
         """更新非 mute 维度的活动状态（listening / recording / processing）"""
@@ -347,7 +347,7 @@ class ASRHandler:
                     fp16=False,
                 )
                 text = result["text"].strip()
-                logger.info("ASR result: %s", text)
+                logger.info("ASR result: %r", text)
                 callback = None
                 utterance_gen = generation
                 with self._state_lock:

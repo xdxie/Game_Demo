@@ -49,7 +49,8 @@ class PCMProcessor extends AudioWorkletProcessor {
       const chunk = this._pending.slice(0, this._frameSize);
       this._pending = this._pending.slice(this._frameSize);
       const resampled = this._resample(chunk);
-      this.port.postMessage(resampled, [resampled.buffer]);
+      const out = new Float32Array(resampled);
+      this.port.postMessage(out);
     }
 
     return true;
