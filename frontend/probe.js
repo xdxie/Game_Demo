@@ -23,7 +23,7 @@ const STEPS = [
 
 const PROBE_TTS_TEXT = '探针测试，链路正常。';
 const TTS_TIMEOUT_MS = 45000;
-const PERCEPTION_TIMEOUT_MS = 8000;
+const PERCEPTION_TIMEOUT_MS = 12000;
 
 let probeWs = null;
 let observerWs = null;
@@ -317,16 +317,18 @@ async function runAllProbes() {
       return `running=${data.running}, primary=${data.has_primary}`;
     },
     start: async () => {
+      // 先停旧会话，确保用当前 NITROGEN_MOCK 配置新建 GameSession
+      await fetch('/stop', { method: 'POST' });
       const r = await fetch('/start', { method: 'POST' });
       const data = await r.json();
-      if (r.status === 409) {
-        probeStartedSession = false;
-        return '会话已在运行 (409)';
-      }
       if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
       probeStartedSession = true;
       btnStopSession.disabled = false;
-      return '新会话已启动';
+      const mode = data.nitrogen_mode || '?';
+      if (mode === 'live') {
+        return `新会话已启动 (nitrogen=live，perception 需 ZMQ；前端测试请设 NITROGEN_MOCK=1 并重启)`;
+      }
+      return `新会话已启动 (nitrogen=${mode})`;
     },
     'ws-register': async () => {
       await closeProbeSockets();
@@ -386,15 +388,33 @@ async function runAllProbes() {
     perception: async () => {
       const health = await fetch('/probe/health').then(x => x.json());
       const mockMode = health.nitrogen_mode === 'mock';
-      const jpeg = await makeSyntheticJpeg();
-      for (let i = 0; i < 5; i++) {
-        probeWs.send(packVideoFrame(jpeg, 3.0 + i * 0.1));
-        await new Promise(r => setTimeout(r, 120));
-      }
-      const p = await waitWsJson(
+      const sessionMock = health.nitrogen?.mode === 'mock';
+
+      const perceptionPromise = waitWsJson(
         probeWs, m => m.type === 'perception', PERCEPTION_TIMEOUT_MS,
       );
-      const tag = mockMode ? 'mock' : 'live';
+
+      const jpeg = await makeSyntheticJpeg();
+      for (let i = 0; i < 8; i++) {
+        probeWs.send(packVideoFrame(jpeg, 3.0 + i * 0.1));
+        await new Promise(r => setTimeout(r, 80));
+      }
+
+      let p;
+      try {
+        p = await perceptionPromise;
+      } catch (e) {
+        if (!mockMode || sessionMock === false) {
+          throw new Error(
+            '未收到 perception：当前为 live 模式或未用 mock 会话。'
+            + '请确认 .env 中 NITROGEN_MOCK=1，Ctrl+C 重启 python run.py 后重跑探针'
+            + '（此步与 Anthropic/VLM 无关）'
+          );
+        }
+        throw e;
+      }
+
+      const tag = (mockMode || sessionMock) ? 'mock' : 'live';
       return `intent=${p.intent}, conf=${(p.confidence * 100).toFixed(0)}% (${tag})`;
     },
   };

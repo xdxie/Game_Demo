@@ -54,6 +54,19 @@ class TestMockNitroGenClient:
         finally:
             client.stop()
 
+    def test_on_frame_pushed_sets_signal_immediately(self):
+        fb = FrameBuffer()
+        client = MockNitroGenClient()
+        client.start(fb)
+        try:
+            fb.push(_tiny_jpeg(), 1.0)
+            client.on_frame_pushed()
+            assert client.latest_signal is not None
+            assert client.latest_signal.primary_intent == "DODGE"
+            assert client.inference_count == 1
+        finally:
+            client.stop()
+
     def test_no_signal_without_frame(self):
         fb = FrameBuffer()
         client = MockNitroGenClient(cycle_sec=0.05)

@@ -92,6 +92,12 @@ class MockNitroGenClient:
             self._latest_signal = None
             self._signal_generation += 1
 
+    def on_frame_pushed(self):
+        """前端推帧后立即更新模拟感知（探针/主应用无需等待后台轮询）"""
+        with self._signal_lock:
+            self._latest_signal = _DEMO_SIGNALS[self.inference_count % len(_DEMO_SIGNALS)]
+        self.inference_count += 1
+
     def _mock_loop(self, frame_pipe: "VideoFramePipe"):
         idx = 0
         while self._running:

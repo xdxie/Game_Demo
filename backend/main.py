@@ -412,6 +412,9 @@ class GameSession:
     def on_video_frame(self, jpeg_bytes: bytes, video_time: float):
         """Fix 11：前端推帧（在 WebSocket 协程中调用）"""
         self.frame_buffer.push(jpeg_bytes, video_time)
+        notify = getattr(self.nitrogen, "on_frame_pushed", None)
+        if callable(notify):
+            notify()
 
     def on_audio_chunk(self, pcm_bytes: bytes):
         """Fix 13：ASR 音频（非阻塞，立即返回）"""
@@ -563,7 +566,9 @@ async def start_session():
         await _session.stop()
     _session = GameSession()
     await _session.start()
-    return {"status": "ok"}
+    cfg = get_config()
+    mode = "mock" if getattr(_session.nitrogen, "is_mock", False) else "live"
+    return {"status": "ok", "nitrogen_mode": mode}
 
 
 @app.post("/stop")
