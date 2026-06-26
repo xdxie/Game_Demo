@@ -105,6 +105,13 @@ _primary_ws: Optional[WebSocket] = None
 async def _on_startup():
     """服务启动即后台预热 Whisper/TTS，缩短首次「开始分析」等待。"""
     cfg = get_config()
+    from backend.nitrogen.factory import nitrogen_mode_label
+    if nitrogen_mode_label(cfg) == "fast_api":
+        from backend.nitrogen.ssh_tunnel import ensure_nitrogen_ssh_tunnel
+        try:
+            ensure_nitrogen_ssh_tunnel(cfg.nitrogen_fast_api_url)
+        except Exception as e:
+            logger.warning("SSH tunnel auto-start failed: %s", e)
     await warmup.start_background_warmup(cfg)
     logger.info(
         "Startup: vlm=%s model=%s key=%s",
@@ -112,6 +119,12 @@ async def _on_startup():
         cfg.vlm_model,
         "set" if (cfg.vlm_api_key or os.getenv("VLM_API_KEY")) else "missing",
     )
+
+
+@app.on_event("shutdown")
+async def _on_shutdown():
+    from backend.nitrogen.ssh_tunnel import stop_ssh_tunnel
+    stop_ssh_tunnel()
 
 
 def _reassign_primary_from_players() -> Optional[WebSocket]:

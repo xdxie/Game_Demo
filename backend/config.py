@@ -18,6 +18,12 @@ class Config:
     nitrogen_fast_api_timeout_sec: float = 60.0
     nitrogen_fast_api_reset_on_start: bool = True
     nitrogen_fast_api_fps: float = 2.5   # 远端推理较慢，默认低于 10fps
+    nitrogen_ssh_tunnel: bool = False    # 启动时自动 ssh -L（见 NITROGEN_SSH_*）
+    nitrogen_ssh_host: str = "connect.bjb1.seetacloud.com"
+    nitrogen_ssh_port: int = 18037
+    nitrogen_ssh_user: str = "root"
+    nitrogen_ssh_remote_port: int = 8000
+    nitrogen_ssh_key: str = ""           # 可选私钥路径
     fast_tts_enabled: bool = True      # mock 模式下默认关闭，见 _apply_env
 
     # ── 快系统：动作过滤阈值（2号负责调优）────────────────────────────
@@ -113,6 +119,20 @@ def _apply_env(cfg: Config) -> None:
     reset = _env_bool("NITROGEN_FAST_API_RESET_ON_START")
     if reset is not None:
         cfg.nitrogen_fast_api_reset_on_start = reset
+
+    tunnel = _env_bool("NITROGEN_SSH_TUNNEL")
+    if tunnel is not None:
+        cfg.nitrogen_ssh_tunnel = tunnel
+    if v := os.getenv("NITROGEN_SSH_HOST"):
+        cfg.nitrogen_ssh_host = v.strip()
+    if v := os.getenv("NITROGEN_SSH_PORT"):
+        cfg.nitrogen_ssh_port = int(v)
+    if v := os.getenv("NITROGEN_SSH_USER"):
+        cfg.nitrogen_ssh_user = v.strip()
+    if v := os.getenv("NITROGEN_SSH_REMOTE_PORT"):
+        cfg.nitrogen_ssh_remote_port = int(v)
+    if v := os.getenv("NITROGEN_SSH_KEY"):
+        cfg.nitrogen_ssh_key = v.strip()
 
     if v := os.getenv("VLM_API_KEY"):
         cfg.vlm_api_key = v.strip()

@@ -45,10 +45,30 @@ if __name__ == "__main__":
     if backend == "mock":
         logger.info("NitroGen: mock 模式（仅前端闭环）。实机请设 NITROGEN_MOCK=0")
     elif backend == "fast_api":
-        logger.info(
-            "NitroGen: fast_api → %s（需 SSH 隧道，见 action_fast_system/README.md）",
-            cfg.nitrogen_fast_api_url,
+        from backend.nitrogen.ssh_tunnel import (
+            ensure_nitrogen_ssh_tunnel,
+            local_port_from_url,
         )
+        nitro_port = local_port_from_url(cfg.nitrogen_fast_api_url)
+        if nitro_port == 8000:
+            logger.warning(
+                "NITROGEN_FAST_API_URL 指向 localhost:8000，与陪玩服务端口冲突。"
+                "请改为 http://localhost:18000，并设 NITROGEN_SSH_REMOTE_PORT=8000"
+            )
+        try:
+            if ensure_nitrogen_ssh_tunnel(cfg.nitrogen_fast_api_url):
+                logger.info(
+                    "NitroGen: fast_api → %s（SSH 隧道已自动建立）",
+                    cfg.nitrogen_fast_api_url,
+                )
+            else:
+                logger.info(
+                    "NitroGen: fast_api → %s（未设 NITROGEN_SSH_TUNNEL=1 时请手动开隧道）",
+                    cfg.nitrogen_fast_api_url,
+                )
+        except Exception as e:
+            logger.error("NitroGen SSH tunnel failed: %s", e)
+            raise
     else:
         logger.info("NitroGen: ZMQ → %s", cfg.nitrogen_server)
     from backend.slow.vlm_factory import vlm_provider
