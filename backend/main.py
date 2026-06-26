@@ -161,6 +161,16 @@ async def _send_session_role(ws: WebSocket) -> None:
         await ws.send_json({"type": "session_role", "role": role})
     except Exception:
         pass
+    if role == "primary" and _session is not None and _session._running:
+        if _session._analysis_paused:
+            try:
+                await _session.on_resume()
+            except Exception as e:
+                logger.warning("Resume on primary register failed: %s", e)
+        try:
+            await _session._broadcast_asr_state(ws)
+        except Exception as e:
+            logger.warning("ASR state on register failed: %s", e)
 
 
 async def _handle_register(ws: WebSocket, data: dict) -> None:
@@ -242,6 +252,7 @@ class GameSession:
         )
         self.asr_handler.on_state_change = self._on_asr_state_change
         self.asr_handler.on_barge_in = self._on_asr_barge_in
+        self.asr_handler._emit_state()
         self.asr_handler.is_tts_playing = lambda: self.tts_queue.is_speaking
         self.tts_queue = TTSQueue(
             tts_engine=self.tts_engine,
@@ -301,6 +312,7 @@ class GameSession:
         self._main_loop_task = asyncio.create_task(self._analysis_loop())
 
         await self._broadcast({"type": "status", "state": "started"})
+        await self._broadcast_asr_state()
         cfg = self.cfg
         logger.info(
             "GameSession started (nitrogen=%s, vlm=%s/%s, fast_tts=%s)",
@@ -325,8 +337,18 @@ class GameSession:
             await asyncio.wait_for(self.vlm_manager.cancel_all(), timeout=0.3)
         except asyncio.TimeoutError:
             logger.warning("VLM cancel timed out on stop")
-        self.asr_handler.stop()
         logger.info("GameSession stopped")
+
+    async def _broadcast_asr_state(self, ws: WebSocket | None = None):
+        state = self.asr_handler.activity_state
+        msg = {"type": "asr_state", "state": state}
+        if ws is not None:
+            try:
+                await ws.send_json(msg)
+            except Exception:
+                pass
+            return
+        await self._broadcast(msg)
 
     # ── 核心分析循环 ──────────────────────────────────────────────────
 

@@ -112,6 +112,11 @@ class ASRHandler:
         self._emit_state()
 
     @property
+    def activity_state(self) -> str:
+        with self._state_lock:
+            return self._activity_state if not self._muted else "muted"
+
+    @property
     def seek_generation(self) -> int:
         with self._state_lock:
             return self._seek_generation

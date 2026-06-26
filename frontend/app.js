@@ -317,10 +317,14 @@ if (clientMode === 'player') {
       }
 
       isAnalysisRunning = true;
+      try {
+        await videoPlayer.play();
+      } catch (err) {
+        console.warn('video play:', err);
+      }
       connectWebSocket();
       btnStart.style.display = 'none';
       btnStop.style.display  = '';
-      videoPlayer.play();
       addSystemMsg('分析已开始，等待主连接确认…');
     } catch (err) {
       alert('连接后端失败：' + err.message);
@@ -408,9 +412,10 @@ function syncPrimaryStateToServer() {
   sendVideoReadyIfNeeded();
   isSeeking = true;
   ws.send(JSON.stringify({ type: 'seek', time: videoPlayer.currentTime }));
+  const shouldResume = isAnalysisRunning && !videoPlayer.paused && !videoPlayer.ended;
   ws.send(JSON.stringify({
     type: 'playback',
-    action: (videoPlayer.paused || videoPlayer.ended) ? 'pause' : 'resume',
+    action: shouldResume ? 'resume' : 'pause',
   }));
 }
 
@@ -418,9 +423,7 @@ function applySessionRole(role) {
   const wasPrimary = isPrimaryClient;
   isPrimaryClient = (role === 'primary');
   if (isPrimaryClient) {
-    if (!mediaStream) {
-      startMicrophone();
-    }
+    ensureMicrophoneReady();
     syncPrimaryStateToServer();
     startFrameCapture();
     if (!wasPrimary) {
@@ -432,6 +435,20 @@ function applySessionRole(role) {
     micStatus.className = '';
     stopFrameCapture();
     stopTTSAudio();
+  }
+}
+
+async function ensureMicrophoneReady() {
+  if (!isPrimaryClient) return;
+  try {
+    if (!mediaStream || !audioContext || audioContext.state === 'closed') {
+      await startMicrophone();
+    } else if (audioContext.state === 'suspended') {
+      await audioContext.resume();
+    }
+    updateMicStatus('listening');
+  } catch (err) {
+    console.error('ensureMicrophoneReady:', err);
   }
 }
 
@@ -523,7 +540,7 @@ function handleServerMessage(msg) {
       break;
 
     case 'asr_state':
-      updateMicStatus(msg.state);
+      if (isPrimaryClient) updateMicStatus(msg.state);
       break;
 
     case 'vlm_state':
@@ -764,6 +781,7 @@ async function startMicrophone() {
     }
 
     console.log('Microphone started @', audioContext.sampleRate, 'Hz');
+    updateMicStatus('listening');
   } catch (err) {
     console.error('Mic error:', err);
     micStatus.textContent = '🎤 无权限';
