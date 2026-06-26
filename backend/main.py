@@ -230,9 +230,13 @@ class GameSession:
         )
 
         self.tts_engine  = TTSEngine(
+            engine=cfg.tts_engine,
             voice=cfg.tts_voice,
             rate=cfg.tts_rate,
             synthesis_timeout=cfg.tts_synthesis_timeout_sec,
+            volc_api_key=cfg.volc_api_key,
+            volc_speaker=cfg.volc_speaker,
+            volc_speed_ratio=cfg.volc_speed_ratio,
         )
         tts_cache = warmup.get_tts_cache()
         if tts_cache:
@@ -242,13 +246,18 @@ class GameSession:
         self.asr_handler = ASRHandler(
             model_size=cfg.whisper_model,
             language=cfg.whisper_language,
+            engine=cfg.asr_engine,
+            device=cfg.asr_device,
             vad_silence_threshold=cfg.vad_silence_threshold,
             vad_speech_min_sec=cfg.vad_speech_min_sec,
             vad_silence_end_sec=cfg.vad_silence_end_sec,
+            vad_silence_end_short_sec=cfg.vad_silence_end_short_sec,
+            vad_adaptive_boundary_sec=cfg.vad_adaptive_boundary_sec,
             tts_mute_tail_sec=cfg.tts_mute_tail_sec,
             barge_in_enabled=cfg.barge_in_enabled,
             barge_in_threshold_mult=cfg.barge_in_threshold_mult,
             whisper_model=whisper,
+            asr_engine_type=warmup.get_asr_engine_type(cfg),
         )
         self.asr_handler.on_state_change = self._on_asr_state_change
         self.asr_handler.on_barge_in = self._on_asr_barge_in

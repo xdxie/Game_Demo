@@ -23,6 +23,8 @@ paramiko>=3.4.0
 
 # TTS
 edge-tts>=6.1.9
+requests>=2.31.0
+faster-whisper>=1.0.0
 
 # 音频播放（任选其一）
 pygame>=2.5.0       # 推荐，简单可靠

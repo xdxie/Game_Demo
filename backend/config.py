@@ -56,6 +56,11 @@ class Config:
     vlm_nitrogen_input: bool = False    # 暂不把 NitroGen 操控/时间线注入 VLM
 
     # ── TTS（3号负责调优）─────────────────────────────────────────────
+    # tts_engine: volcengine | edge-tts
+    tts_engine: str = "edge-tts"
+    volc_api_key: str = ""                  # 火山引擎 API Key（勿提交 .env 以外）
+    volc_speaker: str = "zh_female_vv_uranus_bigtts"
+    volc_speed_ratio: float = 1.5
     tts_voice: str = "zh-CN-YunxiNeural"    # edge-tts 声音（3号选音色）
     tts_rate: str = "+20%"                  # 语速（+20% 偏快，游戏场景）
     tts_inter_utterance_gap: float = 0.8    # 两条语音之间的间隔（秒）
@@ -65,11 +70,16 @@ class Config:
     fast_hint_expire_sec: float = 2.0       # 快提示超时丢弃（秒）
 
     # ── ASR（5号负责调优）─────────────────────────────────────────────
+    # asr_engine: faster-whisper | openai-whisper
+    asr_engine: str = "openai-whisper"
+    asr_device: str = "auto"                # auto | cuda | cpu（仅 faster-whisper）
     whisper_model: str = "base"
     whisper_language: str = "zh"
     vad_silence_threshold: int = 80         # 振幅门限（RMS/峰值混合，见 handler._chunk_level）
     vad_speech_min_sec: float = 0.35        # 最短有效语音（秒）
-    vad_silence_end_sec: float = 0.9        # 静音多久判定说话结束
+    vad_silence_end_sec: float = 0.9        # 长句静音多久判定说话结束
+    vad_silence_end_short_sec: float = 0.6  # 短句静音判定（自适应 VAD）
+    vad_adaptive_boundary_sec: float = 1.0  # 短句/长句分界（秒）
     tts_mute_tail_sec: float = 0.2          # TTS 结束后 ASR 额外静默（消余音）
     barge_in_enabled: bool = True           # TTS 播报时检测用户说话并打断
     barge_in_threshold_mult: float = 2.0   # 打断阈值 = 静音阈值 × 此系数（防视频串音）
@@ -162,6 +172,34 @@ def _apply_env(cfg: Config) -> None:
     nit_in = _env_bool("VLM_NITROGEN_INPUT")
     if nit_in is not None:
         cfg.vlm_nitrogen_input = nit_in
+
+    if v := os.getenv("TTS_ENGINE"):
+        cfg.tts_engine = v.strip().lower()
+    if v := os.getenv("VOLC_API_KEY"):
+        cfg.volc_api_key = v.strip()
+    if v := os.getenv("VOLC_SPEAKER"):
+        cfg.volc_speaker = v.strip()
+    if v := os.getenv("VOLC_SPEED_RATIO"):
+        cfg.volc_speed_ratio = float(v)
+    if v := os.getenv("TTS_VOICE"):
+        cfg.tts_voice = v.strip()
+    if v := os.getenv("TTS_RATE"):
+        cfg.tts_rate = v.strip()
+
+    if v := os.getenv("ASR_ENGINE"):
+        cfg.asr_engine = v.strip().lower()
+    if v := os.getenv("ASR_DEVICE"):
+        cfg.asr_device = v.strip().lower()
+    if v := os.getenv("WHISPER_MODEL"):
+        cfg.whisper_model = v.strip()
+    if v := os.getenv("WHISPER_LANGUAGE"):
+        cfg.whisper_language = v.strip()
+    if v := os.getenv("VAD_SILENCE_THRESHOLD"):
+        cfg.vad_silence_threshold = int(v)
+    if v := os.getenv("VAD_SPEECH_MIN_SEC"):
+        cfg.vad_speech_min_sec = float(v)
+    if v := os.getenv("VAD_SILENCE_END_SEC"):
+        cfg.vad_silence_end_sec = float(v)
 
 
 def get_config() -> Config:

@@ -15,16 +15,16 @@ from unittest.mock import MagicMock, patch
 @pytest.fixture
 def asr_handler():
     """
-    创建 ASRHandler 并 mock 掉 whisper.load_model。
+    创建 ASRHandler 并 mock 掉 _load_model。
     mock model 的 transcribe() 返回固定文本 "测试语音"。
     """
-    with patch("whisper.load_model") as mock_load:
+    with patch("backend.asr.handler._load_model") as mock_load:
         mock_model = MagicMock()
         mock_model.transcribe.return_value = {"text": "测试语音"}
-        mock_load.return_value = mock_model
+        mock_load.return_value = (mock_model, "openai-whisper")
 
         from backend.asr.handler import ASRHandler
-        handler = ASRHandler(model_size="base", language="zh")
+        handler = ASRHandler(model_size="base", language="zh", engine="openai-whisper")
         yield handler
         handler.stop()   # 停止转写线程
 

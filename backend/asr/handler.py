@@ -2,6 +2,10 @@
 ASR 持续收音处理器：Whisper + VAD，自动识别用户提问。
 TTS 播报期间暂停 VAD，避免回声误触发。
 
+支持两种引擎（config.asr_engine）：
+  - "faster-whisper"：CTranslate2 加速，支持 GPU/CPU，推荐
+  - "openai-whisper"：原版，兼容性好
+
 Fix 13：Whisper 识别改为独立线程池，不再阻塞 VAD。
 Utterance 握手：通过 on_state_change 向前端广播 listening/recording/processing/muted。
 """
@@ -10,28 +14,51 @@ from __future__ import annotations
 import logging
 import queue
 import threading
-from typing import Callable, Optional
+from typing import Callable, Optional, Tuple
 
 import numpy as np
 
-try:
-    import whisper
-except (ImportError, TypeError) as e:
-    raise ImportError(
-        "无法导入 OpenAI Whisper。常见原因：误装了 PyPI 上的错误包 `whisper`。\n"
-        "请依次执行：\n"
-        "  pip uninstall whisper -y\n"
-        "  pip install openai-whisper\n"
-        "验证：python -c \"import whisper; print(whisper.__file__)\" 应指向 site-packages/whisper/ 目录而非单个 whisper.py"
-    ) from e
-
-if not hasattr(whisper, "load_model"):
-    raise ImportError(
-        "当前 `whisper` 模块不是 openai-whisper（缺少 load_model）。\n"
-        "请执行：pip uninstall whisper -y && pip install openai-whisper"
-    )
-
 logger = logging.getLogger(__name__)
+
+
+def _load_model(model_size: str, engine: str, device: str) -> Tuple[object, str]:
+    """
+    根据配置加载 Whisper 模型，返回 (model, engine_type)。
+    engine_type 用于 _transcription_loop 区分 API 调用方式。
+    """
+    engine = (engine or "openai-whisper").strip().lower()
+    if engine == "faster-whisper":
+        from faster_whisper import WhisperModel
+
+        if device == "auto":
+            try:
+                import torch
+                use_cuda = torch.cuda.is_available()
+            except ImportError:
+                use_cuda = False
+            actual_device = "cuda" if use_cuda else "cpu"
+        else:
+            actual_device = device
+
+        compute_type = "float16" if actual_device == "cuda" else "int8"
+        logger.info(
+            "Loading faster-whisper '%s' on %s (%s) ...",
+            model_size, actual_device, compute_type,
+        )
+        model = WhisperModel(model_size, device=actual_device, compute_type=compute_type)
+        logger.info("faster-whisper loaded (%s %s)", actual_device, compute_type)
+        return model, "faster-whisper"
+
+    import whisper
+    if not hasattr(whisper, "load_model"):
+        raise ImportError(
+            "当前 `whisper` 模块不是 openai-whisper（缺少 load_model）。\n"
+            "请执行：pip uninstall whisper -y && pip install openai-whisper"
+        )
+    logger.info("Loading openai-whisper '%s' ...", model_size)
+    model = whisper.load_model(model_size)
+    logger.info("openai-whisper loaded")
+    return model, "openai-whisper"
 
 
 class ASRHandler:
@@ -52,17 +79,25 @@ class ASRHandler:
         self,
         model_size: str = "base",
         language: str = "zh",
+        engine: str = "openai-whisper",
+        device: str = "auto",
         vad_silence_threshold: int = 300,
         vad_speech_min_sec: float = 0.5,
         vad_silence_end_sec: float = 1.2,
+        vad_silence_end_short_sec: float = 0.6,
+        vad_adaptive_boundary_sec: float = 1.0,
         tts_mute_tail_sec: float = 0.2,
         barge_in_enabled: bool = True,
         barge_in_threshold_mult: float = 1.35,
         whisper_model=None,
+        asr_engine_type: Optional[str] = None,
     ):
         self.SILENCE_THRESHOLD = vad_silence_threshold
         self.SPEECH_MIN_SEC    = vad_speech_min_sec
         self.SILENCE_END_SEC   = vad_silence_end_sec
+        self.SILENCE_END_SHORT = vad_silence_end_short_sec
+        self.SILENCE_END_LONG  = vad_silence_end_sec
+        self.ADAPTIVE_BOUNDARY = vad_adaptive_boundary_sec
         self.TTS_MUTE_TAIL_SEC = tts_mute_tail_sec
         self._barge_in_enabled = barge_in_enabled
         self._barge_in_threshold = int(
@@ -71,11 +106,10 @@ class ASRHandler:
 
         if whisper_model is not None:
             self.model = whisper_model
-            logger.info("ASR using pre-warmed Whisper model")
+            self._engine_type = asr_engine_type or engine
+            logger.info("ASR using pre-warmed model (%s)", self._engine_type)
         else:
-            logger.info("Loading Whisper model: %s ...", model_size)
-            self.model = whisper.load_model(model_size)
-            logger.info("Whisper loaded")
+            self.model, self._engine_type = _load_model(model_size, engine, device)
         self.language = language
 
         self.on_utterance: Optional[Callable[[str, int], None]] = None
@@ -95,6 +129,7 @@ class ASRHandler:
         self._audio_buffer:  list[bytes] = []
         self._speech_frames  = 0
         self._silence_frames = 0
+        self._chunk_samples  = 1600
 
         self._unmute_timer: Optional[threading.Timer] = None
 
@@ -217,11 +252,20 @@ class ASRHandler:
             if len(audio) == 0:
                 return
 
+            self._chunk_samples = len(audio)
             amplitude = self._chunk_level(audio)
 
             chunks_per_sec = sample_rate / len(audio)
-            silence_limit  = int(self.SILENCE_END_SEC * chunks_per_sec)
-            speech_min     = int(self.SPEECH_MIN_SEC  * chunks_per_sec)
+            speech_min = int(self.SPEECH_MIN_SEC * chunks_per_sec)
+
+            speech_duration = (
+                self._speech_frames / chunks_per_sec if chunks_per_sec > 0 else 0
+            )
+            if speech_duration < self.ADAPTIVE_BOUNDARY:
+                silence_end_sec = self.SILENCE_END_SHORT
+            else:
+                silence_end_sec = self.SILENCE_END_LONG
+            silence_limit = int(silence_end_sec * chunks_per_sec)
 
             if amplitude > self.SILENCE_THRESHOLD:
                 self._speaking = True
@@ -318,21 +362,47 @@ class ASRHandler:
             return
 
         raw = b"".join(self._audio_buffer)
-        arr = (
-            np.frombuffer(raw, dtype=np.int16)
-            .astype(np.float32) / 32768.0
-        )
-        logger.debug("ASR queued %.1fs audio for transcription", len(arr) / 16000)
+        arr = np.frombuffer(raw, dtype=np.int16)
+
+        chunk_size = max(1, self._chunk_samples)
+        n_chunks = len(arr) // chunk_size
+        if n_chunks > 0:
+            start = 0
+            end = n_chunks
+            for i in range(n_chunks):
+                chunk = arr[i * chunk_size:(i + 1) * chunk_size]
+                if self._chunk_level(chunk) > self.SILENCE_THRESHOLD:
+                    start = i
+                    break
+            for i in range(n_chunks - 1, start - 1, -1):
+                chunk = arr[i * chunk_size:(i + 1) * chunk_size]
+                if self._chunk_level(chunk) > self.SILENCE_THRESHOLD:
+                    end = i + 1
+                    break
+            arr = arr[start * chunk_size:end * chunk_size]
+
+        if len(arr) == 0:
+            return
+
+        arr_f32 = arr.astype(np.float32) / 32768.0
+        logger.debug("ASR queued %.1fs audio for transcription", len(arr_f32) / 16000)
 
         try:
             gen = self._seek_generation
-            self._transcription_queue.put_nowait((arr, gen))
+            self._transcription_queue.put_nowait((arr_f32, gen))
             self._transcription_inflight += 1
             self._gen_inflight += 1
             self._set_activity_unlocked("processing")
         except queue.Full:
             logger.warning("ASR transcription queue full, dropping audio")
             self._set_activity_unlocked("listening")
+
+    def _transcribe(self, arr: np.ndarray) -> str:
+        if self._engine_type == "faster-whisper":
+            segments, _ = self.model.transcribe(arr, language=self.language)
+            return "".join(s.text for s in segments).strip()
+        result = self.model.transcribe(arr, language=self.language, fp16=False)
+        return result["text"].strip()
 
     def _transcription_loop(self):
         while True:
@@ -341,12 +411,7 @@ class ASRHandler:
                 break
             arr, generation = item
             try:
-                result = self.model.transcribe(
-                    arr,
-                    language=self.language,
-                    fp16=False,
-                )
-                text = result["text"].strip()
+                text = self._transcribe(arr)
                 logger.info("ASR result: %r", text)
                 callback = None
                 utterance_gen = generation

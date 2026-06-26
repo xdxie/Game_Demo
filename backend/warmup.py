@@ -17,6 +17,7 @@ _lock = threading.Lock()
 _status: str = "idle"  # idle | loading | ready | error
 _error: Optional[str] = None
 _whisper_model = None
+_asr_engine_type: str = "openai-whisper"
 _tts_cache: dict[str, bytes] = {}
 
 
@@ -40,19 +41,37 @@ def get_whisper_model(cfg: Config | None = None):
     return _load_whisper_blocking(cfg)
 
 
+def get_asr_engine_type(cfg: Config | None = None) -> str:
+    """返回已预热 ASR 模型对应的引擎类型。"""
+    cfg = cfg or get_config()
+    with _lock:
+        if _whisper_model is not None:
+            return _asr_engine_type
+    _load_whisper_blocking(cfg)
+    with _lock:
+        return _asr_engine_type
+
+
 def get_tts_cache() -> dict[str, bytes]:
     with _lock:
         return dict(_tts_cache)
 
 
 def _load_whisper_blocking(cfg: Config):
-    global _whisper_model
-    import whisper
-    logger.info("Warmup: loading Whisper %s ...", cfg.whisper_model)
-    model = whisper.load_model(cfg.whisper_model)
+    global _whisper_model, _asr_engine_type
+    from backend.asr.handler import _load_model
+
+    logger.info(
+        "Warmup: loading ASR %s (%s/%s) ...",
+        cfg.whisper_model, cfg.asr_engine, cfg.asr_device,
+    )
+    model, engine_type = _load_model(
+        cfg.whisper_model, cfg.asr_engine, cfg.asr_device,
+    )
     with _lock:
         _whisper_model = model
-    logger.info("Warmup: Whisper ready")
+        _asr_engine_type = engine_type
+    logger.info("Warmup: ASR ready (%s)", engine_type)
     return model
 
 
@@ -68,9 +87,13 @@ async def _warmup_async(cfg: Config):
 
     try:
         engine = TTSEngine(
+            engine=cfg.tts_engine,
             voice=cfg.tts_voice,
             rate=cfg.tts_rate,
             synthesis_timeout=cfg.tts_synthesis_timeout_sec,
+            volc_api_key=cfg.volc_api_key,
+            volc_speaker=cfg.volc_speaker,
+            volc_speed_ratio=cfg.volc_speed_ratio,
         )
         tasks = []
         if _whisper_model is None:
