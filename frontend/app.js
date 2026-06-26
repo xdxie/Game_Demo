@@ -21,7 +21,7 @@
  *   byte[0]=0x02  视频帧：byte[1..8]=float64 LE 时间，byte[9..]=JPEG
  *
  * 二进制协议（服务端 → 客户端）：
- *   MP3 bytes（TTS 音频，直接播放）
+ *   byte[0]=0x03  TTS 音频：byte[1:5]=uint32 LE utterance_id，byte[5:]=MP3
  */
 
 'use strict';
@@ -137,9 +137,11 @@ function connectWebSocket() {
   };
 
   ws.onmessage = e => {
-    // Fix 14：区分二进制（TTS 音频）和文本（JSON 事件）
     if (e.data instanceof ArrayBuffer) {
-      playTTSAudio(e.data);
+      const parsed = parseTTSBinaryFrame(e.data);
+      if (parsed) {
+        playTTSAudio(parsed.mp3, parsed.utteranceId);
+      }
       return;
     }
     try {
@@ -194,6 +196,7 @@ function handleServerMessage(msg) {
 
     case 'seek_done':
       isSeeking = false;
+      stopTTSAudio();
       break;
 
     case 'video_ended':
@@ -249,6 +252,7 @@ function captureAndSendFrame() {
 videoPlayer.addEventListener('seeking', () => {
   if (seekDebounce) clearTimeout(seekDebounce);
   seekDebounce = setTimeout(() => {
+    stopTTSAudio();
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: 'seek', time: videoPlayer.currentTime }));
       isSeeking = true;
@@ -273,56 +277,68 @@ videoPlayer.addEventListener('ended', () => {
 
 // ── Fix 14：TTS 音频播放 ──────────────────────────────────────────────
 
-function stopTTSAudio() {
+/** 解析服务端 TTS 二进制帧：0x03 + uint32 LE utterance_id + MP3 */
+function parseTTSBinaryFrame(arrayBuffer) {
+  if (arrayBuffer.byteLength < 5) return null;
+  const view = new DataView(arrayBuffer);
+  if (view.getUint8(0) !== 0x03) return null;
+  return {
+    utteranceId: view.getUint32(1, true),
+    mp3: arrayBuffer.slice(5),
+  };
+}
+
+function stopCurrentTTSAudio() {
   if (currentTTSAudio) {
     currentTTSAudio.pause();
     currentTTSAudio.src = '';
     currentTTSAudio = null;
   }
   currentUtteranceId = null;
-  pendingUtteranceId = null;
   clearPlayingHighlight();
 }
 
-function playTTSAudio(arrayBuffer) {
-  stopTTSAudio();
-
-  const utteranceId = pendingUtteranceId;
+function stopTTSAudio() {
+  stopCurrentTTSAudio();
   pendingUtteranceId = null;
+}
+
+function playTTSAudio(arrayBuffer, utteranceIdFromFrame) {
+  const utteranceId = utteranceIdFromFrame ?? pendingUtteranceId;
+  pendingUtteranceId = null;
+
+  stopCurrentTTSAudio();
   currentUtteranceId = utteranceId;
 
   const blob = new Blob([arrayBuffer], { type: 'audio/mpeg' });
   const url  = URL.createObjectURL(blob);
   const audio = new Audio(url);
 
-  audio.onended = () => {
-    URL.revokeObjectURL(url);
-    currentTTSAudio = null;
+  const sendTtsDone = () => {
     if (ws && ws.readyState === WebSocket.OPEN && utteranceId != null) {
       ws.send(JSON.stringify({ type: 'tts_done', utterance_id: utteranceId }));
     }
     currentUtteranceId = null;
     clearPlayingHighlight();
+  };
+
+  audio.onended = () => {
+    URL.revokeObjectURL(url);
+    currentTTSAudio = null;
+    sendTtsDone();
   };
 
   audio.onerror = () => {
     URL.revokeObjectURL(url);
     currentTTSAudio = null;
-    if (ws && ws.readyState === WebSocket.OPEN && utteranceId != null) {
-      ws.send(JSON.stringify({ type: 'tts_done', utterance_id: utteranceId }));
-    }
-    currentUtteranceId = null;
-    clearPlayingHighlight();
+    sendTtsDone();
   };
 
   audio.play().catch(err => {
     console.warn('TTS audio play error (may need user gesture):', err);
     URL.revokeObjectURL(url);
-    if (ws && ws.readyState === WebSocket.OPEN && utteranceId != null) {
-      ws.send(JSON.stringify({ type: 'tts_done', utterance_id: utteranceId }));
-    }
-    currentUtteranceId = null;
-    clearPlayingHighlight();
+    currentTTSAudio = null;
+    sendTtsDone();
   });
 
   currentTTSAudio = audio;

@@ -48,6 +48,7 @@ class TTSQueue:
     """
     优先级播报队列。
     utterance_id 关联 JSON 字幕与 MP3 二进制，支持前端精确 tts_done 回传。
+    speak_token 在打断时递增，使进行中的合成线程结果失效。
     """
 
     def __init__(
@@ -56,15 +57,15 @@ class TTSQueue:
         asr_handler: Optional["ASRHandler"] = None,
         inter_gap: float = 0.8,
         fallback_margin: float = 1.0,
-        broadcast_audio: Optional[Callable[[bytes], None]] = None,
+        broadcast_audio: Optional[Callable[[int, bytes], None]] = None,
     ):
         self._tts   = tts_engine
         self._asr   = asr_handler
         self._gap   = inter_gap
         self._fallback_margin = fallback_margin
+        self._broadcast_audio = broadcast_audio
 
-        if broadcast_audio:
-            tts_engine.on_audio_data = broadcast_audio
+        tts_engine.on_audio_data = self._on_audio_data
 
         self._heap: list[TTSItem] = []
         self._lock = threading.Lock()
@@ -76,10 +77,15 @@ class TTSQueue:
         self._pending_done_id: Optional[int] = None
         self._completion_handled = False
         self._fallback_timer: Optional[threading.Timer] = None
+        self._speak_token = 0
 
         self._on_speak_start: Optional[Callable] = None
         self._on_speak_end:   Optional[Callable] = None
         self._on_interrupt:   Optional[Callable] = None
+
+    @property
+    def pending_utterance_id(self) -> Optional[int]:
+        return self._pending_done_id
 
     def set_callbacks(self, on_start=None, on_end=None, on_interrupt=None):
         self._on_speak_start = on_start
@@ -118,12 +124,22 @@ class TTSQueue:
             ]
             heapq.heapify(self._heap)
 
-    def clear_and_stop(self):
+    def clear_and_stop(self, notify: bool = True):
         with self._lock:
             self._heap.clear()
-        self._interrupt(notify=False)
+        self._interrupt(notify=notify)
 
     # ── 内部调度 ──────────────────────────────────────────────────────
+
+    def _on_audio_data(self, mp3_bytes: bytes):
+        """TTSEngine 合成完成 → 带 utterance_id 广播"""
+        uid = self._pending_done_id
+        if uid is None or not self._broadcast_audio:
+            return
+        try:
+            self._broadcast_audio(uid, mp3_bytes)
+        except Exception as e:
+            logger.error("TTS broadcast_audio error: %s", e)
 
     def _speak_next(self):
         now = time.time()
@@ -149,6 +165,9 @@ class TTSQueue:
         self._current_item = item
         self._is_speaking  = True
 
+        self._speak_token += 1
+        token = self._speak_token
+
         if self._asr:
             self._asr.mute()
 
@@ -158,14 +177,22 @@ class TTSQueue:
 
         logger.info("TTS speak [%s] #%d: %s", channel, uid, item.text)
 
+        def is_cancelled() -> bool:
+            return token != self._speak_token
+
         def _on_dispatched(duration_est: float):
+            if is_cancelled():
+                return
             self._schedule_fallback(uid, duration_est)
 
         def _on_error():
+            if is_cancelled():
+                return
             self._on_playback_done(uid, source="error")
 
         self._tts.speak_async(
             item.text,
+            is_cancelled=is_cancelled,
             on_dispatched=_on_dispatched,
             on_error=_on_error,
         )
@@ -211,6 +238,7 @@ class TTSQueue:
             except Exception as e:
                 logger.error("TTS on_interrupt callback error: %s", e)
 
+        self._speak_token += 1
         self._cancel_fallback_timer()
         with self._lock:
             self._completion_handled = True

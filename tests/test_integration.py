@@ -196,7 +196,7 @@ class TestTTSPriorityIntegration:
         """
         speak_order = []
 
-        def slow_speak(text, on_dispatched=None, on_error=None):
+        def slow_speak(text, is_cancelled=None, on_dispatched=None, on_error=None):
             speak_order.append(text)
 
         mock_tts_engine.speak_async.side_effect = slow_speak
@@ -218,9 +218,9 @@ class TestTTSPriorityIntegration:
 
         spoken_texts = []
 
-        def record(text, on_dispatched=None, on_error=None):
+        def record(text, is_cancelled=None, on_dispatched=None, on_error=None):
             spoken_texts.append(text)
-            if on_dispatched:
+            if on_dispatched and not (is_cancelled and is_cancelled()):
                 on_dispatched(0.1)
 
         mock_tts_engine.speak_async.side_effect = record

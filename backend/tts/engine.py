@@ -23,16 +23,13 @@ class TTSEngine:
     """
     edge-tts 封装。
     合成 MP3 bytes → 调用 on_audio_data 发往前端。
-    on_dispatched(estimated_duration) 在音频发出后回调，供队列设置 fallback 定时器。
+    is_cancelled 用于打断后丢弃过期的合成结果，避免脏 MP3。
     """
 
     def __init__(self, voice: str = "zh-CN-YunxiNeural", rate: str = "+20%"):
         self.voice = voice
         self.rate  = rate
-
-        self._stop_flag = threading.Event()
         self._cache: dict[str, bytes] = {}
-
         self.on_audio_data: Optional[Callable[[bytes], None]] = None
 
     def preload(self, texts: list[str] | None = None):
@@ -55,47 +52,48 @@ class TTSEngine:
     def speak_async(
         self,
         text: str,
+        is_cancelled: Optional[Callable[[], bool]] = None,
         on_dispatched: Optional[Callable[[float], None]] = None,
         on_error: Optional[Callable[[], None]] = None,
     ):
         """
         异步合成并发送（在新线程中执行，不阻塞调用方）。
-        合成完成后：
-          1. 调用 on_audio_data(mp3_bytes) → 发往前端播放
-          2. 调用 on_dispatched(estimated_duration) → 队列设置 fallback 定时器
+        合成前后均检查 is_cancelled，防止打断后仍发出旧音频。
         """
-        self._stop_flag.clear()
-
         threading.Thread(
             target=self._speak_thread,
-            args=(text, on_dispatched, on_error),
+            args=(text, is_cancelled, on_dispatched, on_error),
             daemon=True,
             name="tts-speak",
         ).start()
 
     def stop(self):
-        """立即中止当前合成/发送流程"""
-        self._stop_flag.set()
+        """保留接口兼容；实际取消由 TTSQueue 的 is_cancelled 令牌控制"""
 
     # ── 内部实现 ──────────────────────────────────────────────────────
 
     def _speak_thread(
         self,
         text: str,
+        is_cancelled: Optional[Callable[[], bool]],
         on_dispatched: Optional[Callable[[float], None]],
         on_error: Optional[Callable[[], None]],
     ):
+        def _cancelled() -> bool:
+            return bool(is_cancelled and is_cancelled())
+
         try:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             audio_data = loop.run_until_complete(self._synthesize_cached(text))
         except Exception as e:
             logger.error("TTS synthesis error: %s", e)
-            if on_error:
+            if on_error and not _cancelled():
                 on_error()
             return
 
-        if self._stop_flag.is_set():
+        if _cancelled():
+            logger.debug("TTS synthesis discarded (cancelled): '%s'", text[:20])
             return
 
         if not audio_data:
@@ -109,7 +107,8 @@ class TTSEngine:
             except Exception as e:
                 logger.error("TTS on_audio_data callback error: %s", e)
 
-        if self._stop_flag.is_set():
+        if _cancelled():
+            logger.debug("TTS dispatch discarded (cancelled): '%s'", text[:20])
             return
 
         if on_dispatched:

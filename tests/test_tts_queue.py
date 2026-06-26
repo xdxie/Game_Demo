@@ -66,7 +66,9 @@ class TestTTSQueueImmediate:
 
 class TestTTSQueuePriority:
     def test_user_answer_interrupts_current(self, mock_tts_engine, mock_asr_handler):
-        mock_tts_engine.speak_async.side_effect = lambda text, on_dispatched=None, on_error=None: None
+        mock_tts_engine.speak_async.side_effect = (
+            lambda text, is_cancelled=None, on_dispatched=None, on_error=None: None
+        )
 
         on_interrupt = MagicMock()
         q = TTSQueue(mock_tts_engine, mock_asr_handler,
@@ -83,10 +85,10 @@ class TestTTSQueuePriority:
         speak_order = []
         utterance_ids = []
 
-        def _speak(text, on_dispatched=None, on_error=None):
+        def _speak(text, is_cancelled=None, on_dispatched=None, on_error=None):
             speak_order.append(text)
             utterance_ids.append(q._pending_done_id)
-            if on_dispatched:
+            if on_dispatched and not (is_cancelled and is_cancelled()):
                 on_dispatched(0.1)
 
         mock_tts_engine.speak_async.side_effect = _speak
@@ -135,7 +137,9 @@ class TestTTSQueuePlaybackDone:
 
     def test_fallback_triggers_unmute(self, mock_tts_engine, mock_asr_handler):
         mock_tts_engine.speak_async.side_effect = \
-            lambda text, on_dispatched=None, on_error=None: on_dispatched(0.05)
+            lambda text, is_cancelled=None, on_dispatched=None, on_error=None: (
+                on_dispatched(0.05) if on_dispatched else None
+            )
 
         q = TTSQueue(mock_tts_engine, mock_asr_handler,
                      inter_gap=0.0, fallback_margin=0.05)
@@ -145,7 +149,9 @@ class TestTTSQueuePlaybackDone:
 
     def test_synth_error_advances_queue(self, mock_tts_engine, mock_asr_handler):
         mock_tts_engine.speak_async.side_effect = \
-            lambda text, on_dispatched=None, on_error=None: on_error() if on_error else None
+            lambda text, is_cancelled=None, on_dispatched=None, on_error=None: (
+                on_error() if on_error else None
+            )
 
         on_end = MagicMock()
         q = TTSQueue(mock_tts_engine, mock_asr_handler,
@@ -181,15 +187,21 @@ class TestTTSQueueClear:
         q._is_speaking = True
         with q._lock:
             heapq.heappush(q._heap, make_item("测试", Priority.SLOW_ADVICE))
-        q.clear_and_stop()
+        on_interrupt = MagicMock()
+        q.set_callbacks(on_interrupt=on_interrupt)
+        q._pending_done_id = 7
+        q.clear_and_stop(notify=True)
         assert len(q._heap) == 0
         mock_tts_engine.stop.assert_called()
+        on_interrupt.assert_called_once_with(7)
 
 
 class TestTTSCallbacks:
     def test_on_speak_start_called_with_utterance_id(self, mock_tts_engine, mock_asr_handler):
         on_start = MagicMock()
-        mock_tts_engine.speak_async.side_effect = lambda text, on_dispatched=None, on_error=None: None
+        mock_tts_engine.speak_async.side_effect = (
+            lambda text, is_cancelled=None, on_dispatched=None, on_error=None: None
+        )
 
         q = TTSQueue(mock_tts_engine, mock_asr_handler,
                      inter_gap=0.0, fallback_margin=0.0)
@@ -207,11 +219,34 @@ class TestTTSCallbacks:
         finish_playback(q, 1)
         on_end.assert_called()
 
-    def test_broadcast_audio_injected_to_engine(self, mock_tts_engine, mock_asr_handler):
+    def test_broadcast_audio_wrapped_by_queue(self, mock_tts_engine, mock_asr_handler):
         broadcast = MagicMock()
-        TTSQueue(mock_tts_engine, mock_asr_handler,
-                 inter_gap=0.0, broadcast_audio=broadcast)
-        assert mock_tts_engine.on_audio_data is broadcast
+        q = TTSQueue(mock_tts_engine, mock_asr_handler,
+                     inter_gap=0.0, broadcast_audio=broadcast)
+        q.push("测试", Priority.FAST_HINT)
+        mock_tts_engine.on_audio_data(b"mp3bytes")
+        broadcast.assert_called_once_with(1, b"mp3bytes")
+
+
+class TestTTSQueueStaleSynthesis:
+    def test_speak_token_invalidates_inflight(self, mock_tts_engine, mock_asr_handler):
+        """打断后 is_cancelled 应返回 True，阻止旧 utterance 继续"""
+        cancelled_fns = []
+
+        def capture_cancel(text, is_cancelled=None, on_dispatched=None, on_error=None):
+            if is_cancelled:
+                cancelled_fns.append(is_cancelled)
+
+        mock_tts_engine.speak_async.side_effect = capture_cancel
+
+        q = TTSQueue(mock_tts_engine, mock_asr_handler,
+                     inter_gap=0.0, fallback_margin=0.0)
+        q.push("慢通道", Priority.SLOW_ADVICE)
+        assert len(cancelled_fns) == 1
+        assert not cancelled_fns[0]()
+
+        q._interrupt(notify=False)
+        assert cancelled_fns[0]()
 
 
 # ═══════════════════════════════════════════════════════════════════════

@@ -15,7 +15,7 @@ WebSocket 二进制协议（客户端 → 服务端）：
             byte[9:]  = JPEG bytes（256×256）
 
 WebSocket 二进制协议（服务端 → 客户端）：
-  TTS 音频 MP3 bytes（无额外头部，服务端到客户端仅此一种二进制消息）
+  byte[0]=0x03  TTS 音频：byte[1:5]=uint32 LE utterance_id，byte[5:]=MP3
 """
 
 from __future__ import annotations
@@ -48,6 +48,7 @@ from backend.fast.event import EventType, GameEvent
 from backend.slow.context_buffer import ContextBuffer, ConversationHistory, FastHistory
 from backend.slow.trigger import VLMRequestManager
 from backend.tts.engine import TTSEngine
+from backend.tts.protocol import frame_tts_audio
 from backend.tts.queue import TTSQueue, Priority
 from backend.asr.handler import ASRHandler
 
@@ -313,10 +314,11 @@ class GameSession:
             asyncio.get_event_loop(),
         )
 
-    def _broadcast_tts_audio(self, audio_bytes: bytes):
-        """Fix 14：将 MP3 bytes 广播给所有 WebSocket 客户端"""
+    def _broadcast_tts_audio(self, utterance_id: int, audio_bytes: bytes):
+        """将 MP3 打包 utterance_id 后广播给所有 WebSocket 客户端"""
+        framed = frame_tts_audio(utterance_id, audio_bytes)
         asyncio.run_coroutine_threadsafe(
-            self._broadcast_binary(audio_bytes),
+            self._broadcast_binary(framed),
             asyncio.get_event_loop(),
         )
 
@@ -393,7 +395,7 @@ async def websocket_endpoint(ws: WebSocket):
       byte[0]=0x02  视频帧（NitroGen）byte[1:9]=float64 LE 时间，byte[9:]=JPEG
 
     二进制协议（服务端 → 客户端）：
-      MP3 bytes（TTS 音频，无头部）
+      byte[0]=0x03  TTS 音频（byte[1:5]=uint32 LE utterance_id，byte[5:]=MP3）
 
     JSON（双向）：
       客户端发：seek / playback / video_ready / tts_done

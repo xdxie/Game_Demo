@@ -87,8 +87,8 @@ def mock_tts_engine():
     engine = MagicMock()
     engine.on_audio_data = None
 
-    def _speak(text, on_dispatched=None, on_error=None):
-        if on_dispatched:
+    def _speak(text, is_cancelled=None, on_dispatched=None, on_error=None):
+        if on_dispatched and not (is_cancelled and is_cancelled()):
             on_dispatched(0.5)
 
     engine.speak_async.side_effect = _speak
