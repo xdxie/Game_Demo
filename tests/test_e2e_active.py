@@ -39,7 +39,7 @@ LLM_MODEL = "gemini-3.1-flash-lite:stable"
 
 # ── 火山引擎 TTS 配置 ────────────────────────────────────────────────
 VOLC_API_KEY = "d1dca442-e60a-49a6-b296-fa6ae31fd04e"
-VOLC_SPEAKER = "zh_female_vv_uranus_bigtts"
+VOLC_SPEAKER = "zh_female_cancan_uranus_bigtts"
 VOLC_URL = "https://openspeech.bytedance.com/api/v3/tts/unidirectional"
 
 SYSTEM_PROMPT = (

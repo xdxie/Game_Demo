@@ -154,7 +154,7 @@ def run_tts():
     import numpy as np
 
     api_key = "d1dca442-e60a-49a6-b296-fa6ae31fd04e"
-    speaker = "zh_female_vv_uranus_bigtts"
+    speaker = "zh_female_cancan_uranus_bigtts"
     url = "https://openspeech.bytedance.com/api/v3/tts/unidirectional"
 
     print(f"[TTS 测试] 引擎: 火山引擎 seed-tts-2.0（边收边播）  音色: {speaker}")
