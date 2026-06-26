@@ -1,0 +1,12 @@
+{
+  "game_type": "platformer",
+  "game_name": "New Super Mario Bros.",
+  "query": "穿过红圈以后红币乱飞，我是不是该先看清楚路线再跳？",
+  "image_paths": [
+    "nsmb_vlm_queries/query_04_screenshot_00m45s.jpg"
+  ],
+  "clip_start": 41.0,
+  "clip_end": 45.0,
+  "trigger_reason": "manual_review",
+  "action_summary": "RUNx1 -> RIGHTx1 -> RUNx1 -> UPx1 -> RUNx1 -> RUNx1 -> RIGHTx1 -> RUNx4"
+}

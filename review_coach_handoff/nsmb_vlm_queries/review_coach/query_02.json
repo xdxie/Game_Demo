@@ -1,0 +1,12 @@
+{
+  "game_type": "platformer",
+  "game_name": "New Super Mario Bros.",
+  "query": "刚才顶砖的时候怪就在脚底下，我是不是该先处理怪再顶？",
+  "image_paths": [
+    "nsmb_vlm_queries/query_02_screenshot_00m34s.jpg"
+  ],
+  "clip_start": 30.0,
+  "clip_end": 34.0,
+  "trigger_reason": "manual_review",
+  "action_summary": "JUMPx1 -> LEFTx1"
+}

@@ -1,0 +1,12 @@
+{
+  "game_type": "platformer",
+  "game_name": "New Super Mario Bros.",
+  "query": "刚才差点掉进坑里，我是不是应该先踩掉蘑菇怪再跳？",
+  "image_paths": [
+    "nsmb_vlm_queries/query_05_screenshot_00m93s.jpg"
+  ],
+  "clip_start": 89.0,
+  "clip_end": 93.0,
+  "trigger_reason": "manual_review",
+  "action_summary": "JUMPx1 -> LEFTx1 -> RIGHTx1"
+}
