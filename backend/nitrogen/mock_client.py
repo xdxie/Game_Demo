@@ -7,6 +7,7 @@ import logging
 import math
 import threading
 import time
+from dataclasses import replace
 from typing import TYPE_CHECKING, Optional
 
 from backend.nitrogen.controls import signal_from_controls
@@ -95,6 +96,31 @@ class MockNitroGenClient:
         steer = max(-1.0, min(1.0, steer + wobble))
 
         signal = signal_from_controls(steer, throttle, brake)
+        if brake:
+            signal = replace(
+                signal,
+                primary_intent="DODGE",
+                confidence=0.88,
+                raw_dodge_score=0.9,
+                hint_text="模拟闪避/刹车",
+            )
+
+        prev = self._latest_signal
+        if prev is not None:
+            delta = (
+                abs(signal.steer - prev.steer)
+                + abs(signal.throttle - prev.throttle)
+                + abs(signal.brake - prev.brake)
+            )
+            if delta >= 0.2:
+                hint = signal.hint_text or "操控变化"
+                signal = replace(
+                    signal,
+                    is_action_change=True,
+                    change_distance=delta,
+                    hint_text=hint,
+                )
+
         with self._signal_lock:
             if (
                 self._latest_signal is not None

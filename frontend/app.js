@@ -618,14 +618,19 @@ function handleServerMessage(msg) {
         dotNitrogen.className = 'dot loading';
         dotNitrogen.title = 'NitroGen：等待首帧/首次推理';
       }
+      if (msg.state === 'video_ended_can_ask' && msg.message) {
+        addSystemMsg(msg.message);
+      }
       if (msg.state === 'user_question_no_frame') {
         addSystemMsg('画面未就绪，暂时无法回答，请稍后再问');
       }
       break;
 
     case 'video_ended':
-      addSystemMsg('视频播放结束');
+      addSystemMsg('视频播放结束，仍可继续语音提问');
       ttsStatus.textContent = '🔇 待机';
+      requestAsrState();
+      ensureMicrophoneReady().catch(() => {});
       break;
 
     case 'conversation_cleared':

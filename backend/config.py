@@ -36,7 +36,7 @@ class Config:
         "sudden_dodge":      3.0,
         "attack_window":     4.0,
         "sustained_danger":  8.0,
-        "movement_shift":   10.0,
+        "movement_shift":   4.0,
         "pattern_completed": 5.0,
     })
 
@@ -80,6 +80,7 @@ class Config:
     vad_silence_end_sec: float = 0.9        # 长句静音多久判定说话结束
     vad_silence_end_short_sec: float = 0.6  # 短句静音判定（自适应 VAD）
     vad_adaptive_boundary_sec: float = 1.0  # 短句/长句分界（秒）
+    vad_max_speech_sec: float = 8.0         # 最长连续语音，超时强制送识别（防游戏底噪卡死）
     tts_mute_tail_sec: float = 0.2          # TTS 结束后 ASR 额外静默（消余音）
     barge_in_enabled: bool = True           # TTS 播报时检测用户说话并打断
     barge_in_threshold_mult: float = 2.0   # 打断阈值 = 静音阈值 × 此系数（防视频串音）
@@ -162,8 +163,6 @@ def _apply_env(cfg: Config) -> None:
     fast_tts = _env_bool("FAST_TTS")
     if fast_tts is not None:
         cfg.fast_tts_enabled = fast_tts
-    elif cfg.nitrogen_mock:
-        cfg.fast_tts_enabled = False
 
     barge = _env_bool("BARGE_IN")
     if barge is not None:

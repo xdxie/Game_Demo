@@ -128,6 +128,13 @@ class ActionFilter:
                 t: float) -> Optional[GameEvent]:
         prev = self._prev_signal
 
+        # ── 检测0：NitroGen / mock 动作突变（fast_api is_change）────────
+        if (signal.is_action_change
+                and signal.change_distance >= 0.05
+                and signal.confidence >= self.confidence_threshold * 0.7):
+            return self._make_event(EventType.MOVEMENT_SHIFT, t, signal,
+                                    fast=True, slow=False)
+
         # ── 检测1：突发闪避 ────────────────────────────────────────────
         # 条件：当前意图是 DODGE，置信度超阈值，且上一帧不是 DODGE（突变）
         if (signal.primary_intent == "DODGE"

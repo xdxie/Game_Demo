@@ -259,6 +259,7 @@ class GameSession:
             vad_silence_end_sec=cfg.vad_silence_end_sec,
             vad_silence_end_short_sec=cfg.vad_silence_end_short_sec,
             vad_adaptive_boundary_sec=cfg.vad_adaptive_boundary_sec,
+            vad_max_speech_sec=cfg.vad_max_speech_sec,
             tts_mute_tail_sec=cfg.tts_mute_tail_sec,
             barge_in_enabled=cfg.barge_in_enabled,
             barge_in_threshold_mult=cfg.barge_in_threshold_mult,
@@ -517,14 +518,19 @@ class GameSession:
         self.asr_handler.force_unmute()
 
     async def on_video_ended(self):
-        """视频播放结束：暂停分析并停止播报"""
+        """视频播放结束：停止 NitroGen/快通道，保留最后一帧供语音问答"""
         self._analysis_paused = True
-        self.frame_buffer.pause()
         self.nitrogen.pause()
         self.tts_queue.clear_and_stop()
         await self.vlm_manager.cancel_all()
         self.asr_handler.force_unmute()
         await self._broadcast({"type": "video_ended"})
+        await self._broadcast({
+            "type": "status",
+            "state": "video_ended_can_ask",
+            "message": "视频已结束，仍可语音提问（使用最后一帧画面）",
+        })
+        await self._broadcast_asr_state()
 
     async def on_clear_conversation(self):
         """清空多轮对话历史（seek 时保留，由用户主动触发）"""

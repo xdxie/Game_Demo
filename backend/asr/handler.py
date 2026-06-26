@@ -86,6 +86,7 @@ class ASRHandler:
         vad_silence_end_sec: float = 1.2,
         vad_silence_end_short_sec: float = 0.6,
         vad_adaptive_boundary_sec: float = 1.0,
+        vad_max_speech_sec: float = 8.0,
         tts_mute_tail_sec: float = 0.2,
         barge_in_enabled: bool = True,
         barge_in_threshold_mult: float = 1.35,
@@ -98,6 +99,7 @@ class ASRHandler:
         self.SILENCE_END_SHORT = vad_silence_end_short_sec
         self.SILENCE_END_LONG  = vad_silence_end_sec
         self.ADAPTIVE_BOUNDARY = vad_adaptive_boundary_sec
+        self.MAX_SPEECH_SEC    = vad_max_speech_sec
         self.TTS_MUTE_TAIL_SEC = tts_mute_tail_sec
         self._barge_in_enabled = barge_in_enabled
         self._barge_in_threshold = int(
@@ -293,7 +295,13 @@ class ASRHandler:
                 self._silence_frames += 1
                 self._audio_buffer.append(audio_bytes)
 
-                if self._silence_frames >= silence_limit:
+                if speech_duration >= self.MAX_SPEECH_SEC:
+                    if self._speech_frames >= speech_min:
+                        self._flush_unlocked()
+                    else:
+                        self._set_activity_unlocked("listening")
+                    self._reset_vad_unlocked()
+                elif self._silence_frames >= silence_limit:
                     if self._speech_frames >= speech_min:
                         self._flush_unlocked()
                     else:
