@@ -67,6 +67,7 @@ class ActionFilter:
 
         # float('-inf') 确保游戏开始时第一个事件不被全局间隔阻挡
         self._last_any_trigger: float = float('-inf')
+        self._last_fast_trigger: float = float('-inf')
 
         # 诊断计数器
         self._signal_count: int = 0
@@ -109,19 +110,36 @@ class ActionFilter:
             self._prev_signal = signal
             return None
 
-        # 全局最小间隔检查（用户提问不受此限制）
-        if (self._last_any_trigger != float('-inf')
-                and video_time >= self._last_any_trigger
-                and video_time - self._last_any_trigger < global_min_interval):
-            self._filtered_global += 1
-            logger.info(
-                "ActionFilter 全局间隔过滤: %s (距上次 %.1fs < %.1fs)",
-                event.type.value,
-                video_time - self._last_any_trigger,
-                global_min_interval,
-            )
-            self._prev_signal = signal
-            return None
+        is_fast_only = event.trigger_fast and not event.trigger_slow
+
+        # 全局最小间隔检查：快系统事件用独立计时器 + 较短间隔（3s）
+        if is_fast_only:
+            fast_interval = min(3.0, global_min_interval)
+            if (self._last_fast_trigger != float('-inf')
+                    and video_time >= self._last_fast_trigger
+                    and video_time - self._last_fast_trigger < fast_interval):
+                self._filtered_global += 1
+                logger.info(
+                    "ActionFilter 快系统间隔过滤: %s (距上次快 %.1fs < %.1fs)",
+                    event.type.value,
+                    video_time - self._last_fast_trigger,
+                    fast_interval,
+                )
+                self._prev_signal = signal
+                return None
+        else:
+            if (self._last_any_trigger != float('-inf')
+                    and video_time >= self._last_any_trigger
+                    and video_time - self._last_any_trigger < global_min_interval):
+                self._filtered_global += 1
+                logger.info(
+                    "ActionFilter 全局间隔过滤: %s (距上次 %.1fs < %.1fs)",
+                    event.type.value,
+                    video_time - self._last_any_trigger,
+                    global_min_interval,
+                )
+                self._prev_signal = signal
+                return None
 
         # 单类事件冷却检查（video_time < last 表示 seek 回退，不应用冷却）
         last = self._last_trigger.get(event.type, float('-inf'))
@@ -141,7 +159,10 @@ class ActionFilter:
 
         # 通过所有检查，记录触发时间
         self._last_trigger[event.type] = video_time
-        self._last_any_trigger = video_time
+        if is_fast_only:
+            self._last_fast_trigger = video_time
+        else:
+            self._last_any_trigger = video_time
         self._prev_signal = signal
 
         logger.info("ActionFilter 触发: %s @ %.2fs (conf=%.2f, fast=%s slow=%s)",

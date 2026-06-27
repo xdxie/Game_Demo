@@ -33,10 +33,10 @@ class Config:
 
     # 各事件类型冷却时间（秒）
     cooldowns: dict = field(default_factory=lambda: {
-        "sudden_dodge":      5.0,
-        "attack_window":     6.0,
-        "sustained_danger":  10.0,
-        "movement_shift":   15.0,
+        "sudden_dodge":      3.0,
+        "attack_window":     4.0,
+        "sustained_danger":  8.0,
+        "movement_shift":    5.0,
         "pattern_completed": 8.0,
     })
 
