@@ -59,7 +59,8 @@ class Config:
     # tts_engine: volcengine | edge-tts
     tts_engine: str = "volcengine"
     volc_api_key: str = "d1dca442-e60a-49a6-b296-fa6ae31fd04e"
-    volc_speaker: str = "zh_female_cancan_uranus_bigtts"
+    volc_speaker_fast: str = "zh_male_m191_uranus_bigtts"
+    volc_speaker_slow: str = "zh_female_cancan_uranus_bigtts"
     volc_speed_ratio: float = 1.5
     tts_voice: str = "zh-CN-XiaoxiaoNeural"  # edge-tts 声音（3号选音色）
     tts_rate: str = "+50%"                  # 语速（+50% 快节奏，游戏场景）
@@ -177,7 +178,12 @@ def _apply_env(cfg: Config) -> None:
     if v := os.getenv("VOLC_API_KEY"):
         cfg.volc_api_key = v.strip()
     if v := os.getenv("VOLC_SPEAKER"):
-        cfg.volc_speaker = v.strip()
+        cfg.volc_speaker_fast = v.strip()
+        cfg.volc_speaker_slow = v.strip()
+    if v := os.getenv("VOLC_SPEAKER_FAST"):
+        cfg.volc_speaker_fast = v.strip()
+    if v := os.getenv("VOLC_SPEAKER_SLOW"):
+        cfg.volc_speaker_slow = v.strip()
     if v := os.getenv("VOLC_SPEED_RATIO"):
         cfg.volc_speed_ratio = float(v)
     if v := os.getenv("TTS_VOICE"):

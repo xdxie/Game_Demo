@@ -43,7 +43,8 @@ class TTSEngine:
         voice: str = "zh-CN-YunxiNeural",
         rate: str = "+20%",
         volc_api_key: str = "",
-        volc_speaker: str = "zh_female_vv_uranus_bigtts",
+        volc_speaker_fast: str = "zh_male_m191_uranus_bigtts",
+        volc_speaker_slow: str = "zh_female_cancan_uranus_bigtts",
         volc_speed_ratio: float = 1.5,
     ):
         self.engine = engine
@@ -51,7 +52,8 @@ class TTSEngine:
         self.rate = rate
 
         self._volc_api_key = volc_api_key
-        self._volc_speaker = volc_speaker
+        self._volc_speaker_fast = volc_speaker_fast
+        self._volc_speaker_slow = volc_speaker_slow
         self._volc_speed_ratio = volc_speed_ratio
         self._volc_url = "https://openspeech.bytedance.com/api/v3/tts/unidirectional"
 
@@ -93,6 +95,7 @@ class TTSEngine:
         is_cancelled: Optional[Callable[[], bool]] = None,
         on_dispatched: Optional[Callable[[float], None]] = None,
         on_error: Optional[Callable] = None,
+        speaker: Optional[str] = None,
     ):
         """异步合成并发送，不阻塞调用方。"""
         self._stop_flag.clear()
@@ -102,7 +105,7 @@ class TTSEngine:
 
         threading.Thread(
             target=self._speak_thread,
-            args=(text, on_complete, is_cancelled, on_dispatched, on_error),
+            args=(text, on_complete, is_cancelled, on_dispatched, on_error, speaker),
             daemon=True,
             name="tts-speak",
         ).start()
@@ -123,6 +126,7 @@ class TTSEngine:
         is_cancelled: Optional[Callable[[], bool]] = None,
         on_dispatched: Optional[Callable[[float], None]] = None,
         on_error: Optional[Callable] = None,
+        speaker: Optional[str] = None,
     ):
         try:
             if is_cancelled and is_cancelled():
@@ -133,7 +137,7 @@ class TTSEngine:
                 if self.on_audio_data:
                     self.on_audio_data(audio_data)
             elif self.engine == "volcengine":
-                audio_data = self._synthesize_streaming_volc(text)
+                audio_data = self._synthesize_streaming_volc(text, speaker=speaker)
                 if audio_data and self.on_audio_data:
                     self.on_audio_data(audio_data)
             else:
@@ -173,8 +177,9 @@ class TTSEngine:
 
     # ── 火山引擎 ─────────────────────────────────────────────────────
 
-    def _synthesize_streaming_volc(self, text: str) -> bytes:
+    def _synthesize_streaming_volc(self, text: str, speaker: Optional[str] = None) -> bytes:
         """火山引擎 V3 流式合成：收集所有 chunk 后返回完整 MP3"""
+        use_speaker = speaker or self._volc_speaker_slow
         headers = {
             "X-Api-Key": self._volc_api_key,
             "X-Api-Resource-Id": "seed-tts-2.0",
@@ -190,7 +195,7 @@ class TTSEngine:
         payload = {
             "req_params": {
                 "text": text,
-                "speaker": self._volc_speaker,
+                "speaker": use_speaker,
                 "additions": additions,
                 "audio_params": {
                     "format": "mp3",
@@ -236,8 +241,9 @@ class TTSEngine:
             self._cache[text] = full
         return full
 
-    def _synthesize_full_volc(self, text: str) -> bytes:
+    def _synthesize_full_volc(self, text: str, speaker: Optional[str] = None) -> bytes:
         """火山引擎非流式合成（用于 preload），不调 on_audio_data"""
+        use_speaker = speaker or self._volc_speaker_slow
         headers = {
             "X-Api-Key": self._volc_api_key,
             "X-Api-Resource-Id": "seed-tts-2.0",
@@ -252,7 +258,7 @@ class TTSEngine:
         payload = {
             "req_params": {
                 "text": text,
-                "speaker": self._volc_speaker,
+                "speaker": use_speaker,
                 "additions": additions,
                 "audio_params": {
                     "format": "mp3",

@@ -91,7 +91,8 @@ async def _warmup_async(cfg: Config):
             voice=cfg.tts_voice,
             rate=cfg.tts_rate,
             volc_api_key=cfg.volc_api_key,
-            volc_speaker=cfg.volc_speaker,
+            volc_speaker_fast=cfg.volc_speaker_fast,
+            volc_speaker_slow=cfg.volc_speaker_slow,
             volc_speed_ratio=cfg.volc_speed_ratio,
         )
         tasks = []

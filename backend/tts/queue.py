@@ -222,6 +222,9 @@ class TTSQueue:
             synth_started = time.time()
 
         channel = _priority_to_channel(item.priority)
+        speaker = (self._tts._volc_speaker_fast
+                   if item.priority == Priority.FAST_HINT
+                   else self._tts._volc_speaker_slow)
         if self._on_speak_start:
             self._on_speak_start(item.text, channel, uid)
 
@@ -250,6 +253,7 @@ class TTSQueue:
             is_cancelled=is_cancelled,
             on_dispatched=_on_dispatched,
             on_error=_on_error,
+            speaker=speaker,
         )
 
     def _schedule_fallback(self, utterance_id: int, duration_est: float):

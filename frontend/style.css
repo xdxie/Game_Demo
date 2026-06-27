@@ -393,11 +393,23 @@ input[type="file"] { display: none; }
 }
 .btn-small:hover { border-color: var(--accent); color: var(--text); }
 
-/* ── 麦克风状态样式 ─────────────────────────────────────────────── */
-#mic-status.recording { color: var(--user); font-weight: 600; }
-#mic-status.muted     { color: var(--text-muted); }
-#mic-status.error     { color: #f96; font-weight: 600; }
-#mic-status.loading   { color: var(--text-muted); }
+/* ── 静音按钮 ───────────────────────────────────────────────────── */
+.btn-mute {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg3);
+  color: var(--text-muted);
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn-mute:hover { border-color: var(--accent); color: var(--text); }
+.btn-mute.muted { color: var(--text-muted); }
+.btn-mute.active { color: var(--slow); border-color: var(--slow); }
+.btn-mute.error { color: #f96; }
 
 /* ── 滚动条美化 ─────────────────────────────────────────────────── */
 ::-webkit-scrollbar            { width: 5px; }

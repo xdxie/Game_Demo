@@ -281,7 +281,8 @@ class GameSession:
             voice=cfg.tts_voice,
             rate=cfg.tts_rate,
             volc_api_key=cfg.volc_api_key,
-            volc_speaker=cfg.volc_speaker,
+            volc_speaker_fast=cfg.volc_speaker_fast,
+            volc_speaker_slow=cfg.volc_speaker_slow,
             volc_speed_ratio=cfg.volc_speed_ratio,
         )
         tts_cache = warmup.get_tts_cache()
@@ -1245,12 +1246,42 @@ async def websocket_endpoint(ws: WebSocket):
                         if uid >= 0:
                             _session.tts_queue.on_client_tts_done(uid)
 
-                    elif mtype == "set_voice" and _session:
+                    elif mtype in ("set_voice_fast", "set_voice_slow") and _session:
                         speaker = data.get("speaker", "")
+                        is_fast = mtype == "set_voice_fast"
+                        attr = "_volc_speaker_fast" if is_fast else "_volc_speaker_slow"
                         if speaker:
-                            _session.tts_engine._volc_speaker = speaker
+                            old_speaker = getattr(_session.tts_engine, attr)
+                            setattr(_session.tts_engine, attr, speaker)
                             _session.tts_engine._cache.clear()
-                            logger.info("Voice changed to: %s", speaker)
+                            label = "快系统" if is_fast else "慢系统"
+                            logger.info("%s voice changed to: %s", label, speaker)
+
+                            async def _validate_voice(old_spk, new_spk, _attr, _label):
+                                loop = asyncio.get_running_loop()
+                                try:
+                                    audio = await loop.run_in_executor(
+                                        None,
+                                        _session.tts_engine._synthesize_full_volc,
+                                        "测试",
+                                        new_spk,
+                                    )
+                                    if not audio:
+                                        raise RuntimeError("empty audio")
+                                except Exception as e:
+                                    logger.warning(
+                                        "Voice %s validation failed, reverting to %s: %s",
+                                        new_spk, old_spk, e,
+                                    )
+                                    setattr(_session.tts_engine, _attr, old_spk)
+                                    _session.tts_engine._cache.clear()
+                                    await _session._broadcast({
+                                        "type": "voice_error",
+                                        "speaker": new_spk,
+                                        "message": f"{_label}音色 {new_spk} 不可用，已恢复原音色",
+                                    })
+
+                            asyncio.create_task(_validate_voice(old_speaker, speaker, attr, label))
 
                     elif mtype == "set_game" and _session:
                         game = data.get("game", "")

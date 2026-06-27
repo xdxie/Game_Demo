@@ -45,7 +45,7 @@ let wsReconnectAttempts = 0;
 let lastNitrogenErrorMsg = '';
 const WS_RECONNECT_BASE_MS = 1000;
 const WS_RECONNECT_MAX_MS = 15000;
-const APP_BUILD = '20250627-split-chat';
+const APP_BUILD = '20250627-dual-voice';
 let pcmSentCount = 0;
 let asrEnabled = false;   // ASR 默认关闭
 const dismissedUtteranceIds = new Set();
@@ -72,13 +72,12 @@ const chatFast      = $('chat-fast');
 const chatSlow      = $('chat-slow');
 const dotNitrogen   = $('dot-nitrogen');
 const dotVLM        = $('dot-vlm');
-const ttsStatus     = $('tts-status');
-const micStatus     = $('mic-status');
-const chkAsrEnabled = $('chk-asr-enabled');
+const btnMute       = $('btn-mute');
 const captureCanvas = $('capture-canvas');   // Fix 11
 const captureCtx    = captureCanvas.getContext('2d');
 const chkVideoAudio = $('chk-video-audio');
-const voiceSelect   = $('voice-select');
+const voiceFast     = $('voice-fast');
+const voiceSlow     = $('voice-slow');
 const gameSelect    = $('game-select');
 
 // ── 游戏列表（硬编码）─────────────────────────────────────────────────
@@ -324,8 +323,8 @@ if (clientMode === 'player') {
     // 必须在用户手势有效期内先申请麦克风，否则 await 预热后 AudioContext 会挂起
     const micPrime = primeMicrophoneOnUserGesture().catch(err => {
       console.error('mic prime:', err);
-      micStatus.textContent = '🎤 麦克风失败';
-      micStatus.className = 'error';
+      btnMute.textContent = '🎤 麦克风失败';
+      btnMute.className = 'btn-mute error';
       throw err;
     });
     try {
@@ -423,10 +422,18 @@ if (chkVideoAudio) {
   });
 }
 
-if (voiceSelect) {
-  voiceSelect.addEventListener('change', () => {
+if (voiceFast) {
+  voiceFast.addEventListener('change', () => {
     if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'set_voice', speaker: voiceSelect.value }));
+      ws.send(JSON.stringify({ type: 'set_voice_fast', speaker: voiceFast.value }));
+    }
+  });
+}
+
+if (voiceSlow) {
+  voiceSlow.addEventListener('change', () => {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'set_voice_slow', speaker: voiceSlow.value }));
     }
   });
 }
@@ -439,10 +446,10 @@ if (gameSelect) {
   });
 }
 
-if (chkAsrEnabled) {
-  chkAsrEnabled.addEventListener('change', () => {
-    asrEnabled = chkAsrEnabled.checked;
-    micStatus.textContent = asrEnabled ? '🎤 开' : '🎤 关';
+if (btnMute) {
+  btnMute.addEventListener('click', () => {
+    asrEnabled = !asrEnabled;
+    syncMuteButton();
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: 'set_asr', enabled: asrEnabled }));
     }
@@ -504,8 +511,8 @@ function syncPrimaryStateToServer({ syncSeek = false } = {}) {
 }
 
 function setMicDisconnected() {
-  micStatus.textContent = '🎤 未连接';
-  micStatus.className = '';
+  asrEnabled = false;
+  syncMuteButton();
 }
 
 function requestAsrState() {
@@ -522,13 +529,14 @@ async function applySessionRole(role) {
     syncPrimaryStateToServer({ syncSeek: wasPrimary });
     startFrameCapture();
     requestAsrState();
+    syncMuteButton();
     if (!wasPrimary) {
       addSystemMsg('已接管主连接');
     }
   } else {
     stopMicrophone();
-    micStatus.textContent = '👁 旁观（只读）';
-    micStatus.className = '';
+    btnMute.textContent = '👁 旁观（只读）';
+    btnMute.className = 'btn-mute muted';
     stopFrameCapture();
     stopTTSAudio();
   }
@@ -545,8 +553,8 @@ async function ensureMicrophoneReady() {
     requestAsrState();
   } catch (err) {
     console.error('ensureMicrophoneReady:', err);
-    micStatus.textContent = '🎤 麦克风失败';
-    micStatus.className = 'error';
+    btnMute.textContent = '🎤 麦克风失败';
+    btnMute.className = 'btn-mute error';
     addSystemMsg(`麦克风错误：${err.message}`);
   }
 }
@@ -568,10 +576,6 @@ function connectWebSocket() {
   ws.onopen = () => {
     console.log('WebSocket connected (build %s)', APP_BUILD);
     pcmSentCount = 0;
-    if (isAnalysisRunning && clientMode === 'player') {
-      micStatus.textContent = '🎤 连接中…';
-      micStatus.className = 'loading';
-    }
     ws.send(JSON.stringify({ type: 'register', role: clientMode }));
   };
 
@@ -581,12 +585,6 @@ function connectWebSocket() {
     if (!isAnalysisRunning) {
       setMicDisconnected();
       return;
-    }
-    if (!isPrimaryClient) {
-      micStatus.textContent = '👁 旁观（只读）';
-    } else {
-      micStatus.textContent = '🎤 重连中…';
-      micStatus.className = 'loading';
     }
     scheduleWsReconnect();
   };
@@ -632,9 +630,6 @@ function handleServerMessage(msg) {
       }
       if (msg.playing && msg.utterance_id != null) {
         pendingUtteranceId = msg.utterance_id;
-        ttsStatus.textContent = `▶ ${channelLabel(msg.channel)}: "${truncate(msg.text || '', 20)}"`;
-      } else if (msg.synthesizing) {
-        ttsStatus.textContent = '🔊 正在合成语音…';
       }
       break;
 
@@ -644,12 +639,11 @@ function handleServerMessage(msg) {
           || currentUtteranceId === msg.utterance_id
           || pendingUtteranceId === msg.utterance_id) {
         stopTTSAudio();
-        ttsStatus.textContent = '🔇 待机';
       }
+      clearPlayingHighlight();
       break;
 
     case 'tts_end':
-      ttsStatus.textContent = '🔇 待机';
       clearPlayingHighlight();
       break;
 
@@ -722,7 +716,6 @@ function handleServerMessage(msg) {
 
     case 'video_ended':
       addSystemMsg('视频播放结束，仍可继续语音提问');
-      ttsStatus.textContent = '🔇 待机';
       requestAsrState();
       ensureMicrophoneReady().catch(() => {});
       break;
@@ -730,6 +723,10 @@ function handleServerMessage(msg) {
     case 'conversation_cleared':
       chatFast.innerHTML = '';
       chatSlow.innerHTML = '';
+      break;
+
+    case 'voice_error':
+      addSystemMsg(`音色切换失败：${msg.message || '该音色不可用，已恢复原音色'}`);
       break;
   }
 }
@@ -855,7 +852,6 @@ function stopCurrentTTSAudio() {
 function stopTTSAudio() {
   stopCurrentTTSAudio();
   pendingUtteranceId = null;
-  ttsStatus.textContent = '🔇 待机';
 }
 
 function playTTSAudio(arrayBuffer, utteranceIdFromFrame) {
@@ -884,7 +880,6 @@ function playTTSAudio(arrayBuffer, utteranceIdFromFrame) {
     sendTtsDone(utteranceId);
     currentUtteranceId = null;
     clearPlayingHighlight();
-    ttsStatus.textContent = '🔇 待机';
   };
 
   audio.onended = onPlaybackEnd;
@@ -996,8 +991,8 @@ async function startMicrophone() {
     requestAsrState();
   } catch (err) {
     console.error('Mic error:', err);
-    micStatus.textContent = '🎤 无权限';
-    micStatus.className = 'error';
+    btnMute.textContent = '🎤 无权限';
+    btnMute.className = 'btn-mute error';
     throw err;
   }
 }
@@ -1108,16 +1103,20 @@ function clearPlayingHighlight() {
 }
 
 function updateMicStatus(state) {
-  if (!isPrimaryClient) return;
+  if (!isPrimaryClient || !asrEnabled) return;
   const labels = {
-    listening:  ['🎤 持续收音中', ''],
-    recording:  ['🎤● 正在说话', 'recording'],
-    processing: ['🎤 识别中…', 'recording'],
-    muted:      ['🎤⊘ TTS 播报中', 'muted'],
+    listening:  '🎤 收音中',
+    recording:  '🎤● 正在说话',
+    processing: '🎤 识别中…',
+    muted:      '🎤 收音中',
   };
-  const [text, cls] = labels[state] || ['🎤 持续收音中', ''];
-  micStatus.textContent = text;
-  micStatus.className   = cls;
+  btnMute.textContent = labels[state] || '🎤 收音中';
+  btnMute.className   = 'btn-mute active';
+}
+
+function syncMuteButton() {
+  btnMute.textContent = asrEnabled ? '🎤 收音中' : '🔇 静音';
+  btnMute.className   = asrEnabled ? 'btn-mute active' : 'btn-mute muted';
 }
 
 function addSystemMsg(text) {
@@ -1173,7 +1172,7 @@ function initObserverMode() {
   `;
   playerArea.style.display = 'none';
   btnClearChat.style.display = 'none';
-  micStatus.textContent = '👁 旁观';
+  btnMute.textContent = '👁 旁观';
 
   $('btn-attach-observer').addEventListener('click', attachAsObserver);
   $('btn-detach-observer').addEventListener('click', detachObserver);
@@ -1203,7 +1202,7 @@ function detachObserver() {
   if (ws) { ws.close(); ws = null; }
   $('btn-attach-observer').style.display = '';
   $('btn-detach-observer').style.display = 'none';
-  micStatus.textContent = '👁 旁观';
+  btnMute.textContent = '👁 旁观';
   addSystemMsg('已断开旁观连接');
 }
 
@@ -1218,6 +1217,5 @@ function disconnectAll() {
   stopMicrophone();
   dotNitrogen.className = 'dot';
   dotVLM.className      = 'dot';
-  ttsStatus.textContent = '🔇 待机';
   setMicDisconnected();
 }
