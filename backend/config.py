@@ -28,7 +28,7 @@ class Config:
     fast_tts_enabled: bool = True      # mock 模式下默认关闭，见 _apply_env
 
     # ── 快系统：动作过滤阈值（2号负责调优）────────────────────────────
-    fast_trigger_confidence: float = 0.75   # 快通道触发置信度下限
+    fast_trigger_confidence: float = 0.40   # 快通道触发置信度下限
     sustained_danger_sec: float = 3.0       # DODGE 持续多久触发 SUSTAINED_DANGER
 
     # 各事件类型冷却时间（秒）

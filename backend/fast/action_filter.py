@@ -220,7 +220,7 @@ class ActionFilter:
 
         # ── 检测3：持续危险 ────────────────────────────────────────────
         # 条件：DODGE 意图持续超过 sustained_danger_sec
-        if signal.primary_intent == "DODGE" and signal.confidence >= 0.6:
+        if signal.primary_intent == "DODGE" and signal.confidence >= self.confidence_threshold * 0.8:
             if self._current_pattern_type == "DODGE":
                 duration = t - self._dodge_start
                 if duration >= self.sustained_danger_sec:

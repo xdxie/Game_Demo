@@ -671,9 +671,6 @@ class GameSession:
                     "First video frame received (t=%.2fs, %d bytes)",
                     video_time, len(jpeg_bytes),
                 )
-            notify = getattr(self.nitrogen, "on_frame_pushed", None)
-            if callable(notify):
-                notify()
 
         loop.run_in_executor(None, _decode_and_push)
 
