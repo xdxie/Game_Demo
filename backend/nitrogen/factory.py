@@ -61,6 +61,8 @@ def create_nitrogen_client(cfg: Config):
             target_fps=fps,
             timeout_sec=timeout,
             reset_on_start=reset_on_start,
+            dump_path=cfg.nitrogen_dump_path,
+            dump_pretty=cfg.nitrogen_dump_pretty,
         )
 
     from backend.nitrogen.client import NitroGenClient

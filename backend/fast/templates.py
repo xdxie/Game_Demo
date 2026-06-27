@@ -2,100 +2,75 @@
 快通道模板引擎：GameEvent → 短提示文本（≤8字）。
 
 纯模板，不调用 LLM，延迟 <1ms。
-每个事件类型有多组模板变体，随机选取以避免重复感。
+游戏专属词表见 backend/fast/game_vocab.py；在此只做代理。
+
+BUTTON_PRESS 优先级：
+  1. 组合键（pressed_buttons 里同时有两键命中 combo_to_text）→ 具体法术/道具名
+  2. 单键（button_name 命中 button_to_text）
+  3. 空串 → main.py 跳过 TTS
+
+返回空串表示该事件无对应文本，main.py 应跳过 TTS。
 """
 
 from __future__ import annotations
-import random
-from typing import Callable
+from itertools import combinations
 
 from backend.fast.event import EventType, GameEvent
-from backend.nitrogen.parser import PerceptionSignal
+from backend.fast.game_vocab import get_vocab
 
 
-# ── 方向中文映射 ──────────────────────────────────────────────────────
-DIRECTION_ZH: dict[str | None, str] = {
-    "LEFT":    "左",
-    "RIGHT":   "右",
-    "FORWARD": "前",
-    "BACK":    "后",
-    None:      "",
-}
-
-# ── 快通道模板表 ──────────────────────────────────────────────────────
-# 每个事件类型: (有方向模板列表, 无方向模板列表)
-
-FAST_TEMPLATES: dict[EventType, tuple[list[Callable], list[Callable]]] = {
-    EventType.SUDDEN_DODGE: (
-        [
-            lambda s: f"往{DIRECTION_ZH[s.move_direction]}闪！",
-            lambda s: f"{DIRECTION_ZH[s.move_direction]}边闪开！",
-            lambda s: f"快往{DIRECTION_ZH[s.move_direction]}躲！",
-            lambda s: f"小心！{DIRECTION_ZH[s.move_direction]}闪！",
-        ],
-        [
-            lambda s: "注意，快闪！",
-            lambda s: "闪开！",
-            lambda s: "快躲！",
-            lambda s: "小心！快闪避！",
-        ],
-    ),
-    EventType.ATTACK_WINDOW: (
-        [
-            lambda s: "有机会，打！",
-            lambda s: "现在打！",
-            lambda s: "空档来了，出手！",
-            lambda s: "机会！赶紧打！",
-        ],
-        [
-            lambda s: "进攻！",
-            lambda s: "上！打他！",
-            lambda s: "出手！",
-            lambda s: "机会来了，打！",
-        ],
-    ),
-    EventType.SUSTAINED_DANGER: (
-        [
-            lambda s: f"危险，往{DIRECTION_ZH[s.move_direction]}跑！",
-            lambda s: f"快撤！往{DIRECTION_ZH[s.move_direction]}拉开！",
-            lambda s: f"太危险了，{DIRECTION_ZH[s.move_direction]}边走！",
-        ],
-        [
-            lambda s: "危险！快拉开距离！",
-            lambda s: "这段很危险，别停！",
-            lambda s: "赶紧撤！太危险了！",
-            lambda s: "快跑，别硬扛！",
-        ],
-    ),
-    EventType.MOVEMENT_SHIFT: (
-        [
-            lambda s: f"往{DIRECTION_ZH[s.move_direction]}走",
-            lambda s: f"往{DIRECTION_ZH[s.move_direction]}跑",
-            lambda s: f"往{DIRECTION_ZH[s.move_direction]}移动",
-            lambda s: f"{DIRECTION_ZH[s.move_direction]}边走",
-            lambda s: f"靠{DIRECTION_ZH[s.move_direction]}走",
-            lambda s: f"走{DIRECTION_ZH[s.move_direction]}边",
-        ],
-        [
-            lambda s: "换个方向走",
-            lambda s: "换个方位",
-            lambda s: "挪一下位置",
-            lambda s: "调整走位",
-        ],
-    ),
-}
+def _parse_pressed(raw: list | None) -> set[str]:
+    """从 ['RIGHT_TRIGGER(0.95)', 'WEST(0.72)'] 提取 conf>=0.5 的按键名集合。"""
+    if not raw:
+        return set()
+    out: set[str] = set()
+    for entry in raw:
+        name = entry.split("(")[0].strip()
+        try:
+            conf = float(entry.split("(")[1].rstrip(")")) if "(" in entry else 1.0
+        except (IndexError, ValueError):
+            conf = 1.0
+        if conf >= 0.5 and name:
+            out.add(name)
+    return out
 
 
-def render_fast(event: GameEvent) -> str:
+def _find_combo(buttons: set[str], combo_map: dict[str, str]) -> str:
+    """
+    枚举 buttons 中所有 2-键组合，按字母序拼 key 查 combo_map。
+    找到第一个命中即返回对应文本；无命中返回空串。
+    """
+    for a, b in combinations(sorted(buttons), 2):
+        key = f"{a}+{b}"
+        if key in combo_map:
+            return combo_map[key]
+    return ""
+
+
+def render_fast(event: GameEvent, game_id: str | None = None) -> str:
     """
     将 GameEvent 渲染为快通道提示文本。
-    从多个变体中随机选取，避免连续重复。
-    """
-    templates = FAST_TEMPLATES.get(event.type)
-    if templates is None:
-        return "注意！"
 
+    game_id 由 GameSession.current_game_id 传入；
+    为 None 或未注册时自动使用通用词表（GENERAL）。
+    只有 trigger_fast=True 的事件才调用此函数。
+    """
+    vocab = get_vocab(game_id)
+
+    if event.type == EventType.BUTTON_PRESS:
+        # 1. 组合键优先
+        cur_btns = _parse_pressed(event.perception.pressed_buttons)
+        if vocab.combo_to_text and cur_btns:
+            combo_text = _find_combo(cur_btns, vocab.combo_to_text)
+            if combo_text:
+                return combo_text
+        # 2. 单键兜底
+        if event.button_name:
+            return vocab.button_to_text.get(event.button_name, "")
+        return ""
+
+    pair = vocab.templates.get(event.type)
+    if pair is None:
+        return vocab.fallback
     has_direction = event.perception.move_direction is not None
-    pool = templates[0] if has_direction else templates[1]
-    fn = random.choice(pool)
-    return fn(event.perception)
+    return (pair[0] if has_direction else pair[1])(event.perception)

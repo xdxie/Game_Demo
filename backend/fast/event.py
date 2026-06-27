@@ -18,6 +18,7 @@ class EventType(Enum):
     ATTACK_WINDOW        = "attack_window"        # 攻击窗口开启（从防御切攻击）
     SUSTAINED_DANGER     = "sustained_danger"     # 持续危险（长时间高置信 DODGE）
     MOVEMENT_SHIFT       = "movement_shift"       # 移动方向突变
+    BUTTON_PRESS         = "button_press"         # 手柄按键按下（边沿检测，游戏专属文本）
 
     # ── 慢系统触发事件 ────────────────────────────────────────────────
     PATTERN_COMPLETED    = "pattern_completed"    # 一段连续操作结束（NitroGen WAIT）
@@ -34,3 +35,4 @@ class GameEvent:
     trigger_fast: bool             # 是否触发快通道
     trigger_slow: bool             # 是否触发慢通道
     user_text: str = ""            # 用户提问内容（USER_QUESTION 时使用）
+    button_name: str = ""          # 触发按键名（仅 BUTTON_PRESS 时有值，如 "SOUTH"）
