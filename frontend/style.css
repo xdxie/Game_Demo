@@ -149,17 +149,6 @@ body { background: var(--bg); color: var(--text); overflow: hidden; }
 .upload-area p { font-size: 14px; }
 .upload-area .hint { font-size: 12px; }
 
-.prepare-status {
-  font-size: 13px;
-  margin: 0 0 8px;
-  padding: 8px 12px;
-  border-radius: 6px;
-  background: #1a2332;
-  color: #9ab;
-}
-.prepare-status.loading { color: #8cf; }
-.prepare-status.ready { color: #6c6; background: #142218; }
-.prepare-status.error { color: #f96; background: #2a1818; }
 input[type="file"] { display: none; }
 
 #video-player-area {
@@ -336,33 +325,6 @@ input[type="file"] { display: none; }
   box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.35);
   background: rgba(59, 130, 246, 0.08);
 }
-
-/* ── 调试面板 ───────────────────────────────────────────────────── */
-#debug-panel {
-  flex-shrink: 0;
-  background: var(--bg2);
-  border-top: 1px solid var(--border);
-  font-size: 12px;
-}
-#debug-panel summary {
-  padding: 6px 16px;
-  cursor: pointer;
-  color: var(--text-muted);
-  user-select: none;
-}
-#debug-content {
-  padding: 8px 16px 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.debug-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  color: var(--text);
-}
-.debug-row .label { color: var(--text-muted); min-width: 60px; }
 
 /* ── 通用按钮 ───────────────────────────────────────────────────── */
 .btn {

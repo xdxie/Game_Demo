@@ -45,7 +45,7 @@ let wsReconnectAttempts = 0;
 let lastNitrogenErrorMsg = '';
 const WS_RECONNECT_BASE_MS = 1000;
 const WS_RECONNECT_MAX_MS = 15000;
-const APP_BUILD = '20250627-dual-voice';
+const APP_BUILD = '20250627-rename';
 let pcmSentCount = 0;
 let asrEnabled = false;   // ASR 默认关闭
 const dismissedUtteranceIds = new Set();
@@ -67,7 +67,6 @@ const playerArea    = $('video-player-area');
 const btnStart      = $('btn-start-analysis');
 const btnStop       = $('btn-stop-analysis');
 const btnClearChat  = $('btn-clear-chat');
-const prepareStatus = $('prepare-status');
 const chatFast      = $('chat-fast');
 const chatSlow      = $('chat-slow');
 const dotNitrogen   = $('dot-nitrogen');
@@ -199,15 +198,9 @@ async function scanVideoForActionTimeline() {
       return;
     }
 
-    const prep = await fetch('/prepare/status').then(x => x.json()).catch(() => ({}));
-    updatePrepareStatusLine(prep, data.key_actions);
     console.log('Action timeline', data.timeline);
   } catch (err) {
     console.warn('Action timeline scan failed', err);
-    if (prepareStatus) {
-      prepareStatus.textContent = `动作时间线失败: ${err.message}`;
-      prepareStatus.className = 'prepare-status error';
-    }
   }
 }
 
@@ -221,30 +214,11 @@ async function pollActionTimelineReady(maxWaitMs = 120000) {
     }
     if (r.ok) {
       const tl = await r.json();
-      const prep = await fetch('/prepare/status').then(x => x.json()).catch(() => ({}));
-      updatePrepareStatusLine(prep, (tl.key_actions || []).length);
       console.log('Action timeline ready', tl);
       return;
     }
     await new Promise(res => setTimeout(res, 500));
   }
-}
-
-function updatePrepareStatusLine(prep, keyActions) {
-  if (!prepareStatus) return;
-  const vlmMode = prep.vlm_mode || 'unknown';
-  const vlmModel = prep.vlm_model || '';
-  const keyHint = keyActions != null ? `动作时间线 ${keyActions} 条；` : '';
-  let line = `${keyHint}Whisper/TTS 就绪；VLM=${vlmMode}`;
-  if (vlmModel) line += ` (${vlmModel})`;
-  if (vlmMode === 'mock') {
-    line += ' — 请在项目根目录 .env 配置 VLM_API_KEY';
-    prepareStatus.className = 'prepare-status error';
-  } else {
-    prepareStatus.className = 'prepare-status ready';
-  }
-  prepareStatus.textContent = line;
-  prepareStatus.hidden = false;
 }
 
 function updateStartButtonState() {
@@ -281,11 +255,6 @@ function startBackendPrepare() {
   if (backendPreparePromise) return backendPreparePromise;
 
   backendPreparePromise = (async () => {
-    if (prepareStatus) {
-      prepareStatus.hidden = false;
-      prepareStatus.textContent = '正在加载 Whisper 与 TTS…';
-      prepareStatus.className = 'prepare-status loading';
-    }
     updateStartButtonState();
 
     try {
@@ -294,14 +263,9 @@ function startBackendPrepare() {
       if (st.status === 'error') {
         throw new Error(st.error || '预热失败');
       }
-      updatePrepareStatusLine(st, null);
       updateStartButtonState();
       return st;
     } catch (err) {
-      if (prepareStatus) {
-        prepareStatus.textContent = `预热失败: ${err.message}`;
-        prepareStatus.className = 'prepare-status error';
-      }
       updateStartButtonState();
       throw err;
     }
@@ -406,11 +370,6 @@ btnClearChat.addEventListener('click', () => {
 // ── 视频元数据加载完成 → 预热 + 抽帧生成动作时间线 ───────────────────
 videoPlayer.addEventListener('loadedmetadata', () => {
   if (clientMode !== 'player') return;
-  if (prepareStatus) {
-    prepareStatus.hidden = false;
-    prepareStatus.textContent = '正在后台准备（Whisper/TTS + 动作时间线）…';
-    prepareStatus.className = 'prepare-status loading';
-  }
   startBackendPrepare().catch(() => {});
   timelineScanPromise = scanVideoForActionTimeline();
   updateStartButtonState();
@@ -676,15 +635,6 @@ function handleServerMessage(msg) {
       break;
 
     case 'perception':
-      $('dbg-intent').textContent  = msg.intent;
-      $('dbg-conf').textContent    = (msg.confidence * 100).toFixed(0) + '%';
-      $('dbg-dir').textContent     = msg.direction || '无';
-      $('dbg-steer').textContent   = msg.steer != null ? msg.steer.toFixed(2) : '—';
-      $('dbg-throttle').textContent = msg.throttle != null ? String(msg.throttle) : '—';
-      $('dbg-brake').textContent   = msg.brake != null ? String(msg.brake) : '—';
-      $('dbg-hint').textContent    = msg.hint || (msg.is_change ? '动作变化' : '—');
-      $('dbg-horizon').textContent = (msg.horizon || []).join(' → ');
-      $('dbg-time').textContent    = (msg.video_time ?? 0).toFixed(2) + 's';
       dotNitrogen.className = 'dot active';
       dotNitrogen.title = `NitroGen：${msg.intent} @ ${msg.video_time}s`;
       break;
@@ -1129,7 +1079,7 @@ function addSystemMsg(text) {
 
 // ── 工具函数 ──────────────────────────────────────────────────────────
 function channelLabel(ch) {
-  return { fast: 'AI-快', slow: 'AI-慢', user_answer: 'AI', user: '你' }[ch] || ch;
+  return { fast: '教练', slow: '陪玩', user_answer: 'AI', user: '你' }[ch] || ch;
 }
 function formatTime(sec) {
   const m = Math.floor(sec / 60);
@@ -1161,7 +1111,7 @@ function stopMicrophone() {
 }
 
 function initObserverMode() {
-  document.querySelector('.title').textContent = '陪玩（旁观）';
+  document.querySelector('.title').textContent = '艺起玩（旁观）';
   const linkObs = $('link-observer');
   if (linkObs) linkObs.style.display = 'none';
   uploadArea.innerHTML = `

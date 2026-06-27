@@ -15,7 +15,7 @@ from backend.slow.vlm_factory import call_vlm
 
 if TYPE_CHECKING:
     from PIL import Image
-    from backend.slow.context_buffer import ContextBuffer, ConversationHistory, FastHistory
+    from backend.slow.context_buffer import ContextBuffer, ConversationHistory, FastHistory, SlowSpokenHistory
     from backend.tts.queue import TTSQueue, Priority
 
 logger = logging.getLogger(__name__)
@@ -37,6 +37,7 @@ class VLMRequestManager:
         context_buffer: "ContextBuffer",
         fast_history: "FastHistory",
         conversation_history: "ConversationHistory",
+        slow_spoken_history: "SlowSpokenHistory | None" = None,
         vlm_model: str = "claude-sonnet-4-6",
         vlm_max_tokens: int = 120,
         get_seek_generation: Optional[Callable[[], int]] = None,
@@ -51,6 +52,7 @@ class VLMRequestManager:
         self._ctx       = context_buffer
         self._fast_hist = fast_history
         self._conv_hist = conversation_history
+        self._slow_spoken = slow_spoken_history
         self._model     = vlm_model
         self._max_tokens = vlm_max_tokens
         self._get_seek_generation = get_seek_generation
@@ -111,6 +113,7 @@ class VLMRequestManager:
             "ctx_snapshot":  self._ctx.summarize(),
             "fast_recent":   self._fast_hist.get_recent_summary(event.timestamp),
             "conv_messages": self._conv_hist.to_messages() if is_user_q else [],
+            "slow_spoken":   self._slow_spoken.get_recent_texts() if self._slow_spoken else [],
             "utterance_seek_gen": utterance_seek_gen,
         }
 
@@ -155,6 +158,7 @@ class VLMRequestManager:
                 actions_timeline_text=actions_text,
                 user_question=event.user_text if is_user_q else "",
                 conversation_history=args["conv_messages"],
+                slow_spoken=args.get("slow_spoken", []),
                 model=self._model,
                 max_tokens=self._max_tokens,
                 include_nitrogen=self._vlm_nitrogen_input,
@@ -239,4 +243,6 @@ class VLMRequestManager:
             return Priority.USER_ANSWER
         if event.type == EventType.PATTERN_COMPLETED:
             return Priority.SLOW_SUMMARY
+        if event.type == EventType.GREETING:
+            return Priority.SLOW_ADVICE
         return Priority.SLOW_ADVICE

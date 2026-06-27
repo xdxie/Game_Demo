@@ -47,6 +47,11 @@ def build_task_section(
             f"玩家提问：{user_question}",
             f"直接回答玩家问题，{hint}。",
         )
+    if event.type == EventType.GREETING:
+        return (
+            event.user_text,
+            "用一句话热情打招呼，不超过15字。",
+        )
     if event.type == EventType.PATTERN_COMPLETED:
         return (
             "触发原因：玩家刚结束一段操作",
@@ -71,6 +76,7 @@ def build_user_text(
     user_question: str = "",
     *,
     include_nitrogen: bool = False,
+    slow_spoken: list[str] | None = None,
 ) -> str:
     task_desc, guidance = build_task_section(
         event, user_question, include_nitrogen=include_nitrogen,
@@ -85,6 +91,9 @@ def build_user_text(
             parts.append(actions_timeline_text)
         signal: PerceptionSignal = event.perception
         parts.append(format_perception_for_vlm(signal))
+
+    if slow_spoken:
+        parts.append(f"你之前的陪玩点评：\"{'; '.join(slow_spoken)}\"")
 
     parts.append(f"快通道刚才已播报：\"{last_fast_text}\"")
     parts.append(f"{task_desc}\n{guidance}")

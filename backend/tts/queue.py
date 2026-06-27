@@ -180,8 +180,9 @@ class TTSQueue:
             self._asr.mute()
 
         if self._on_playback_start:
+            text = self._current_item.text if self._current_item else ""
             try:
-                self._on_playback_start(uid, channel)
+                self._on_playback_start(uid, channel, text)
             except Exception as e:
                 logger.error("TTS on_playback_start error: %s", e)
 
@@ -225,6 +226,9 @@ class TTSQueue:
         speaker = (self._tts._volc_speaker_fast
                    if item.priority == Priority.FAST_HINT
                    else self._tts._volc_speaker_slow)
+        speed_ratio = (self._tts._volc_speed_ratio_fast
+                       if item.priority == Priority.FAST_HINT
+                       else self._tts._volc_speed_ratio_slow)
         if self._on_speak_start:
             self._on_speak_start(item.text, channel, uid)
 
@@ -254,6 +258,7 @@ class TTSQueue:
             on_dispatched=_on_dispatched,
             on_error=_on_error,
             speaker=speaker,
+            speed_ratio=speed_ratio,
         )
 
     def _schedule_fallback(self, utterance_id: int, duration_est: float):

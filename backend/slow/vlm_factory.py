@@ -62,6 +62,7 @@ async def call_vlm(
     actions_timeline_text: str = "",
     user_question: str = "",
     conversation_history: list[dict] | None = None,
+    slow_spoken: list[str] | None = None,
     model: str | None = None,
     max_tokens: int | None = None,
     cfg: Config | None = None,
@@ -99,6 +100,7 @@ async def call_vlm(
                 actions_timeline_text=actions_timeline_text,
                 user_question=user_question,
                 conversation_history=conversation_history,
+                slow_spoken=slow_spoken,
                 cfg=cfg,
                 include_nitrogen=nitrogen,
             )
@@ -117,6 +119,7 @@ async def call_vlm(
         actions_timeline_text=actions_timeline_text,
         user_question=user_question,
         conversation_history=conversation_history,
+        slow_spoken=slow_spoken,
         model=model or cfg.vlm_model,
         max_tokens=max_tokens or cfg.vlm_max_tokens,
         include_nitrogen=nitrogen,

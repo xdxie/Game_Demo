@@ -83,7 +83,7 @@ from backend.nitrogen.factory import (
 from backend.fast.action_filter import ActionFilter
 from backend.fast.templates import render_fast
 from backend.fast.event import EventType, GameEvent
-from backend.slow.context_buffer import ContextBuffer, ConversationHistory, FastHistory
+from backend.slow.context_buffer import ContextBuffer, ConversationHistory, FastHistory, SlowSpokenHistory
 from backend.slow.trigger import VLMRequestManager
 from backend.tts.engine import TTSEngine
 from backend.tts.protocol import frame_tts_audio
@@ -256,6 +256,7 @@ class GameSession:
         self._video_frame_count = 0
         self._t0: float = 0.0
         self.current_game: str = "街头霸王6"
+        self._first_frame_greeted = False
 
         self.frame_buffer = FrameBuffer()
         self.nitrogen = create_nitrogen_client(cfg)
@@ -268,6 +269,7 @@ class GameSession:
         self.ctx_buffer = ContextBuffer(window_sec=cfg.context_window_sec)
         self.conv_hist  = ConversationHistory()
         self.fast_hist  = FastHistory()
+        self.slow_spoken_hist = SlowSpokenHistory()
 
         global _action_timeline
         self.action_timeline: ActionTimeline = (
@@ -283,7 +285,8 @@ class GameSession:
             volc_api_key=cfg.volc_api_key,
             volc_speaker_fast=cfg.volc_speaker_fast,
             volc_speaker_slow=cfg.volc_speaker_slow,
-            volc_speed_ratio=cfg.volc_speed_ratio,
+            volc_speed_ratio_fast=cfg.volc_speed_ratio_fast,
+            volc_speed_ratio_slow=cfg.volc_speed_ratio_slow,
         )
         tts_cache = warmup.get_tts_cache()
         if tts_cache:
@@ -330,6 +333,7 @@ class GameSession:
             context_buffer=self.ctx_buffer,
             fast_history=self.fast_hist,
             conversation_history=self.conv_hist,
+            slow_spoken_history=self.slow_spoken_hist,
             vlm_model=cfg.vlm_model,
             vlm_max_tokens=cfg.vlm_max_tokens,
             get_seek_generation=lambda: self.asr_handler.seek_generation,
@@ -526,6 +530,36 @@ class GameSession:
                     event, frame, utterance_seek_gen=seek_gen,
                 )
 
+    async def _trigger_first_frame_greeting(self):
+        """首帧到达时，自动向慢系统发送开场白请求"""
+        if self._first_frame_greeted or self._analysis_paused:
+            return
+        self._first_frame_greeted = True
+
+        frame = self.frame_buffer.latest_frame
+        if frame is None:
+            return
+
+        game = self.current_game or "游戏"
+        from backend.nitrogen.parser import PerceptionSignal
+        dummy_signal = PerceptionSignal(
+            primary_intent="WAIT", confidence=0.0,
+            move_direction=None, move_magnitude=0.0,
+        )
+        event = GameEvent(
+            type=EventType.GREETING,
+            timestamp=self.frame_buffer.video_position,
+            perception=dummy_signal,
+            trigger_fast=False,
+            trigger_slow=True,
+            user_text=f"我们开始玩{game}啦",
+        )
+        self._tlog("开场白", f"首帧自动问候: {game}")
+        await self.vlm_manager.submit(
+            event, frame,
+            utterance_seek_gen=self.asr_handler.seek_generation,
+        )
+
     # ── 用户语音 ──────────────────────────────────────────────────────
 
     def _schedule(self, coro):
@@ -654,6 +688,7 @@ class GameSession:
     async def on_clear_conversation(self):
         """清空多轮对话历史（seek 时保留，由用户主动触发）"""
         self.conv_hist.clear()
+        self.slow_spoken_hist.clear()
         await self._broadcast({"type": "conversation_cleared"})
 
     # ── 帧与音频输入 ──────────────────────────────────────────────────
@@ -672,6 +707,10 @@ class GameSession:
                     "First video frame received (t=%.2fs, %d bytes)",
                     video_time, len(jpeg_bytes),
                 )
+                if not self._first_frame_greeted:
+                    asyncio.run_coroutine_threadsafe(
+                        self._trigger_first_frame_greeting(), loop
+                    )
 
         loop.run_in_executor(None, _decode_and_push)
 
@@ -723,9 +762,11 @@ class GameSession:
             "synthesizing":  True,
         }))
 
-    def _on_tts_playback(self, utterance_id: int, channel: str):
+    def _on_tts_playback(self, utterance_id: int, channel: str, text: str = ""):
         """MP3 就绪、即将播放 → 此时才 mute 麦克风。"""
         self._tlog("播报中", f"#{utterance_id} 开始播放")
+        if channel == "slow" and text:
+            self.slow_spoken_hist.record(text)
         self._schedule(self._broadcast({
             "type":          "tts",
             "utterance_id":  utterance_id,

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>陪玩</title>
+  <title>艺起玩</title>
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
@@ -11,30 +11,26 @@
 
     <header id="header">
       <div class="header-left">
-        <span class="title">陪玩</span>
-        <nav class="header-nav" aria-label="快捷入口">
-          <a href="/probe" class="header-nav-link" title="E2E 链路探针">探针</a>
-          <a href="?mode=observer" id="link-observer" class="header-nav-link" title="只读旁观">旁观</a>
-        </nav>
+        <span class="title">艺起玩</span>
       </div>
       <div id="status-bar">
         <label class="header-select">
           游戏：<select id="game-select"></select>
         </label>
         <label class="header-select">
-          快音色：<select id="voice-fast">
-            <option value="zh_male_m191_uranus_bigtts">云舟</option>
-            <option value="zh_male_liufei_uranus_bigtts">刘飞</option>
-            <option value="zh_female_cancan_uranus_bigtts">灿灿</option>
-            <option value="zh_female_vv_uranus_bigtts">Vivi</option>
+          教练音色：<select id="voice-fast">
+            <option value="zh_male_m191_uranus_bigtts">男音1</option>
+            <option value="zh_male_liufei_uranus_bigtts">男音2</option>
+            <option value="zh_female_cancan_uranus_bigtts">女音1</option>
+            <option value="zh_female_vv_uranus_bigtts">女音2</option>
           </select>
         </label>
         <label class="header-select">
-          慢音色：<select id="voice-slow">
-            <option value="zh_female_cancan_uranus_bigtts">灿灿</option>
-            <option value="zh_female_vv_uranus_bigtts">Vivi</option>
-            <option value="zh_male_m191_uranus_bigtts">云舟</option>
-            <option value="zh_male_liufei_uranus_bigtts">刘飞</option>
+          搭档音色：<select id="voice-slow">
+            <option value="zh_female_cancan_uranus_bigtts">女音1</option>
+            <option value="zh_female_vv_uranus_bigtts">女音2</option>
+            <option value="zh_male_m191_uranus_bigtts">男音1</option>
+            <option value="zh_male_liufei_uranus_bigtts">男音2</option>
           </select>
         </label>
         <span class="dot" id="dot-nitrogen" title="NitroGen 推理状态">NitroGen</span>
@@ -54,7 +50,6 @@
         </div>
 
         <div id="video-player-area" style="display:none">
-          <p id="prepare-status" class="prepare-status" hidden></p>
           <video id="video-player" controls playsinline></video>
           <label class="video-audio-toggle">
             <input type="checkbox" id="chk-video-audio" />
@@ -70,64 +65,30 @@
       <section id="chat-section">
         <div id="chat-fast-panel" class="chat-panel">
           <div class="chat-panel-header fast">
-            <span>⚡ 快系统</span>
+            <span>🎮 游戏教练</span>
           </div>
           <div id="chat-fast" class="chat-messages-area">
-            <div class="chat-placeholder">快系统提示会显示在这里</div>
+            <div class="chat-placeholder">游戏教练的动作提示会显示在这里</div>
           </div>
         </div>
         <div id="chat-slow-panel" class="chat-panel">
           <div class="chat-panel-header slow">
-            <span>🧠 慢系统</span>
+            <span>💬 在线陪玩</span>
             <button id="btn-clear-chat" class="btn-small">清空</button>
           </div>
           <div id="chat-slow" class="chat-messages-area">
-            <div class="chat-placeholder">慢系统回复和你的提问会显示在这里</div>
+            <div class="chat-placeholder">在线陪玩的回复和你的提问会显示在这里</div>
           </div>
         </div>
       </section>
 
     </main>
 
-    <details id="debug-panel">
-      <summary>🔧 NitroGen 实时感知信号</summary>
-      <div id="debug-content">
-        <div class="debug-row">
-          <span class="label">主导意图</span>
-          <span id="dbg-intent">—</span>
-          <span class="label">置信度</span>
-          <span id="dbg-conf">—</span>
-          <span class="label">方向</span>
-          <span id="dbg-dir">—</span>
-        </div>
-        <div class="debug-row">
-          <span class="label">摇杆 X</span>
-          <span id="dbg-steer">—</span>
-          <span class="label">右扳机</span>
-          <span id="dbg-throttle">—</span>
-          <span class="label">左扳机</span>
-          <span id="dbg-brake">—</span>
-        </div>
-        <div class="debug-row">
-          <span class="label">动作摘要</span>
-          <span id="dbg-hint">—</span>
-        </div>
-        <div class="debug-row">
-          <span class="label">预测序列</span>
-          <span id="dbg-horizon">—</span>
-        </div>
-        <div class="debug-row">
-          <span class="label">视频时间</span>
-          <span id="dbg-time">—</span>
-        </div>
-      </div>
-    </details>
-
   </div>
 
   <!-- Fix 11：隐藏的帧捕获 canvas，256×256 与 NitroGen 输入尺寸一致 -->
   <canvas id="capture-canvas" width="256" height="256" style="display:none"></canvas>
 
-  <script src="/static/app.js?v=20250627-dual-voice"></script>
+  <script src="/static/app.js?v=20250627-rename"></script>
 </body>
 </html>

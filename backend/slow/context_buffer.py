@@ -125,6 +125,32 @@ class FastHistory:
         self._records.clear()
 
 
+class SlowSpokenHistory:
+    """
+    记录实际播报过的慢系统回复，用于后续 VLM 调用提供连续性。
+    只有通过 TTS 合成并开始播放的回复才记录。
+    """
+
+    MAX_ENTRIES = 8
+
+    def __init__(self):
+        self._spoken: list[str] = []
+
+    def record(self, text: str):
+        self._spoken.append(text)
+        if len(self._spoken) > self.MAX_ENTRIES:
+            self._spoken.pop(0)
+
+    def get_recent_texts(self) -> list[str]:
+        return list(self._spoken)
+
+    def clear(self):
+        self._spoken.clear()
+
+    def __len__(self):
+        return len(self._spoken)
+
+
 # ── 工具函数 ──────────────────────────────────────────────────────────
 
 def _run_length(seq: list[str]) -> str:

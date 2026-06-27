@@ -23,6 +23,7 @@ class EventType(Enum):
     PATTERN_COMPLETED    = "pattern_completed"    # 一段连续操作结束（NitroGen WAIT）
     SUSTAINED_DIVERGENCE = "sustained_divergence" # 用户与 AI 长时间背离（预留）
     USER_QUESTION        = "user_question"        # 用户主动提问
+    GREETING             = "greeting"             # 首帧开场白
 
 
 @dataclass

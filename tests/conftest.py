@@ -100,8 +100,12 @@ def mock_tts_engine():
     """
     engine = MagicMock()
     engine.on_audio_data = None
+    engine._volc_speaker_fast = "fast_speaker"
+    engine._volc_speaker_slow = "slow_speaker"
+    engine._volc_speed_ratio_fast = 1.5
+    engine._volc_speed_ratio_slow = 1.2
 
-    def _speak(text, is_cancelled=None, on_dispatched=None, on_error=None):
+    def _speak(text, is_cancelled=None, on_dispatched=None, on_error=None, speaker=None, speed_ratio=None):
         if is_cancelled and is_cancelled():
             return
         if engine.on_audio_data:

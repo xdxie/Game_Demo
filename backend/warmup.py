@@ -93,7 +93,8 @@ async def _warmup_async(cfg: Config):
             volc_api_key=cfg.volc_api_key,
             volc_speaker_fast=cfg.volc_speaker_fast,
             volc_speaker_slow=cfg.volc_speaker_slow,
-            volc_speed_ratio=cfg.volc_speed_ratio,
+            volc_speed_ratio_fast=cfg.volc_speed_ratio_fast,
+            volc_speed_ratio_slow=cfg.volc_speed_ratio_slow,
         )
         tasks = []
         if _whisper_model is None:

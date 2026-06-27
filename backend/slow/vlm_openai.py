@@ -100,6 +100,7 @@ async def call_vlm_openai(
     actions_timeline_text: str,
     user_question: str = "",
     conversation_history: list[dict] | None = None,
+    slow_spoken: list[str] | None = None,
     cfg: Config | None = None,
     include_nitrogen: bool = False,
 ) -> str:
@@ -117,6 +118,7 @@ async def call_vlm_openai(
         user_text = build_user_text(
             event, ctx_summary, last_fast_text, actions_timeline_text, user_question,
             include_nitrogen=include_nitrogen,
+            slow_spoken=slow_spoken,
         )
     except Exception as e:
         logger.error("VLM openai build_user_text failed: %s\n%s", e, traceback.format_exc())

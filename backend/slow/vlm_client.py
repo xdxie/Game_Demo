@@ -37,6 +37,7 @@ async def call_vlm(
     actions_timeline_text: str = "",
     user_question: str = "",
     conversation_history: list[dict] | None = None,
+    slow_spoken: list[str] | None = None,
     model: str = "claude-sonnet-4-6",
     max_tokens: int = 120,
     include_nitrogen: bool = False,
@@ -48,6 +49,7 @@ async def call_vlm(
     user_text = build_user_text(
         event, ctx_summary, last_fast_text, actions_timeline_text, user_question,
         include_nitrogen=include_nitrogen,
+        slow_spoken=slow_spoken,
     )
     img_b64 = _pil_to_base64(frame)
     current_turn = {
