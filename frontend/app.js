@@ -75,6 +75,7 @@ const micStatus     = $('mic-status');
 const captureCanvas = $('capture-canvas');   // Fix 11
 const captureCtx    = captureCanvas.getContext('2d');
 const chkVideoAudio = $('chk-video-audio');
+const voiceSelect   = $('voice-select');
 
 // ── 文件选择 ──────────────────────────────────────────────────────────
 fileInput.addEventListener('change', e => {
@@ -390,6 +391,14 @@ videoPlayer.addEventListener('loadedmetadata', () => {
 if (chkVideoAudio) {
   chkVideoAudio.addEventListener('change', () => {
     videoPlayer.muted = !chkVideoAudio.checked;
+  });
+}
+
+if (voiceSelect) {
+  voiceSelect.addEventListener('change', () => {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'set_voice', speaker: voiceSelect.value }));
+    }
   });
 }
 

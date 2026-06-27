@@ -13,6 +13,8 @@
   4. 如果 NitroGen 在远程，修改 .env 中 NITROGEN_SERVER=tcp://<ip>:5555
 """
 import logging
+import threading
+import webbrowser
 
 import uvicorn
 from dotenv import load_dotenv
@@ -83,8 +85,9 @@ if __name__ == "__main__":
             "请执行: pip install \"uvicorn[standard]\" websockets"
         )
     print("\n" + "=" * 50)
-    print("  请在浏览器打开: http://localhost:8000")
+    print("  浏览器将自动打开: http://localhost:8000")
     print("=" * 50 + "\n")
+    threading.Timer(1.5, lambda: webbrowser.open("http://localhost:8000")).start()
     uvicorn.run(
         "backend.main:app",
         host="0.0.0.0",

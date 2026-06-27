@@ -192,7 +192,26 @@ input[type="file"] { display: none; }
 #video-controls {
   display: flex;
   gap: 10px;
+  align-items: center;
   flex-shrink: 0;
+}
+
+.voice-select-label {
+  font-size: 13px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.voice-select-label select {
+  background: var(--bg2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px 8px;
+  font-size: 13px;
+  cursor: pointer;
 }
 
 /* ── 右侧：对话区 ───────────────────────────────────────────────── */

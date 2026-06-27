@@ -1205,6 +1205,13 @@ async def websocket_endpoint(ws: WebSocket):
                         if uid >= 0:
                             _session.tts_queue.on_client_tts_done(uid)
 
+                    elif mtype == "set_voice" and _session:
+                        speaker = data.get("speaker", "")
+                        if speaker:
+                            _session.tts_engine._volc_speaker = speaker
+                            _session.tts_engine._cache.clear()
+                            logger.info("Voice changed to: %s", speaker)
+
                 except Exception as e:
                     logger.error("WS JSON error: %s", e)
 
