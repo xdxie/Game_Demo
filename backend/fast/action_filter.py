@@ -65,13 +65,13 @@ class ActionFilter:
         self._current_pattern_type: str   = "WAIT"
         self._pattern_start:        float = 0.0
 
-        # float('-inf') 确保游戏开始时第一个事件不被全局间隔阻挡
-        self._last_any_trigger: float = float('-inf')
-        self._last_fast_trigger: float = float('-inf')
+        # wall-clock timestamps (0.0 = never triggered)
+        self._last_any_trigger: float = 0.0
+        self._last_fast_trigger: float = 0.0
 
         # 诊断计数器
         self._signal_count: int = 0
-        self._last_diag_time: float = 0.0
+        self._last_diag_wall: float = 0.0
         self._intent_counts: dict[str, int] = {}
         self._filtered_global: int = 0
         self._filtered_cooldown: int = 0
@@ -84,25 +84,31 @@ class ActionFilter:
         """
         每收到新的感知信号时调用（约 10fps）。
         返回 None 表示无需触发任何通道。
+        冷却和间隔检查使用 wall-clock 而非 video_time，避免视频帧时间戳异常导致快系统沉默。
         """
-        # 诊断：每 10 秒打印意图分布
+        now = time.time()
+
+        # 诊断：每 10 秒（wall-clock）打印意图分布
         self._signal_count += 1
         intent = signal.primary_intent or "UNKNOWN"
         self._intent_counts[intent] = self._intent_counts.get(intent, 0) + 1
-        if video_time - self._last_diag_time >= 10.0:
+        if self._last_diag_wall == 0.0:
+            self._last_diag_wall = now
+        elif now - self._last_diag_wall >= 10.0:
             dist = " ".join(f"{k}:{v}" for k, v in sorted(self._intent_counts.items()))
             logger.info(
                 "ActionFilter 10s统计: signals=%d intents=[%s] conf=%.2f "
-                "filtered(global=%d cooldown=%d) change=%s dir=%s",
+                "filtered(global=%d cooldown=%d) change=%s dir=%s vt=%.1f",
                 self._signal_count, dist, signal.confidence,
                 self._filtered_global, self._filtered_cooldown,
                 signal.is_action_change, signal.move_direction,
+                video_time,
             )
             self._intent_counts.clear()
             self._signal_count = 0
             self._filtered_global = 0
             self._filtered_cooldown = 0
-            self._last_diag_time = video_time
+            self._last_diag_wall = now
 
         event = self._detect(signal, video_time)
 
@@ -112,71 +118,73 @@ class ActionFilter:
 
         is_fast_only = event.trigger_fast and not event.trigger_slow
 
-        # 全局最小间隔检查：快系统事件用独立计时器 + 较短间隔（3s）
+        # 全局最小间隔检查（wall-clock）：快系统独立计时器 + 较短间隔
         if is_fast_only:
-            fast_interval = min(3.0, global_min_interval)
-            if (self._last_fast_trigger != float('-inf')
-                    and video_time >= self._last_fast_trigger
-                    and video_time - self._last_fast_trigger < fast_interval):
+            fast_interval = min(2.0, global_min_interval)
+            if (self._last_fast_trigger > 0
+                    and now - self._last_fast_trigger < fast_interval):
                 self._filtered_global += 1
                 logger.info(
-                    "ActionFilter 快系统间隔过滤: %s (距上次快 %.1fs < %.1fs)",
+                    "ActionFilter 快系统间隔过滤: %s (距上次快 %.1fs < %.1fs, vt=%.2f)",
                     event.type.value,
-                    video_time - self._last_fast_trigger,
+                    now - self._last_fast_trigger,
                     fast_interval,
+                    video_time,
                 )
                 self._prev_signal = signal
                 return None
         else:
-            if (self._last_any_trigger != float('-inf')
-                    and video_time >= self._last_any_trigger
-                    and video_time - self._last_any_trigger < global_min_interval):
+            if (self._last_any_trigger > 0
+                    and now - self._last_any_trigger < global_min_interval):
                 self._filtered_global += 1
                 logger.info(
-                    "ActionFilter 全局间隔过滤: %s (距上次 %.1fs < %.1fs)",
+                    "ActionFilter 全局间隔过滤: %s (距上次 %.1fs < %.1fs, vt=%.2f)",
                     event.type.value,
-                    video_time - self._last_any_trigger,
+                    now - self._last_any_trigger,
                     global_min_interval,
+                    video_time,
                 )
                 self._prev_signal = signal
                 return None
 
-        # 单类事件冷却检查（video_time < last 表示 seek 回退，不应用冷却）
-        last = self._last_trigger.get(event.type, float('-inf'))
+        # 单类事件冷却检查（wall-clock）
+        last = self._last_trigger.get(event.type, 0.0)
         cooldown = self.COOLDOWNS.get(event.type, 3.0)
-        if (last != float('-inf')
-                and video_time >= last
-                and video_time - last < cooldown):
+        if last > 0 and now - last < cooldown:
             self._filtered_cooldown += 1
             logger.info(
-                "ActionFilter 冷却过滤: %s (距上次 %.1fs < %.1fs)",
+                "ActionFilter 冷却过滤: %s (距上次 %.1fs < %.1fs, vt=%.2f)",
                 event.type.value,
-                video_time - last,
+                now - last,
                 cooldown,
+                video_time,
             )
             self._prev_signal = signal
             return None
 
-        # 通过所有检查，记录触发时间
-        self._last_trigger[event.type] = video_time
+        # 通过所有检查，记录触发时间（wall-clock）
+        self._last_trigger[event.type] = now
         if is_fast_only:
-            self._last_fast_trigger = video_time
+            self._last_fast_trigger = now
         else:
-            self._last_any_trigger = video_time
+            self._last_any_trigger = now
         self._prev_signal = signal
 
-        logger.info("ActionFilter 触发: %s @ %.2fs (conf=%.2f, fast=%s slow=%s)",
+        logger.info("ActionFilter 触发: %s @ vt=%.2f (conf=%.2f, fast=%s slow=%s)",
                      event.type.value, video_time, signal.confidence,
                      event.trigger_fast, event.trigger_slow)
         return event
 
     def reset(self):
-        """视频 seek 时调用，重置帧间状态（保留冷却计时，防止 seek 后刷屏）"""
+        """视频 seek 时调用，重置帧间状态。
+        清空冷却计时器，因为 seek 后场景完全改变。"""
         self._prev_signal           = None
         self._dodge_start           = 0.0
         self._current_pattern_type  = "WAIT"
         self._pattern_start         = 0.0
-        # _last_trigger 不清空：防止进度条反复拖动触发密集播报
+        self._last_trigger.clear()
+        self._last_any_trigger      = 0.0
+        self._last_fast_trigger     = 0.0
 
     # ── 内部检测逻辑 ──────────────────────────────────────────────────
 

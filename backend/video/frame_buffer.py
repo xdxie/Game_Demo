@@ -26,6 +26,7 @@ class FrameBuffer:
         self.video_position: float = 0.0
         self.duration_sec:   float = 0.0   # 由前端 video_ready 消息设置
         self._paused = False
+        self._push_count: int = 0
 
     def push(self, jpeg_bytes: bytes, video_time: float):
         """WebSocket 收到视频帧时调用（每帧约 100ms，10fps）"""
@@ -35,6 +36,12 @@ class FrameBuffer:
             frame = Image.open(io.BytesIO(jpeg_bytes)).convert("RGB")
             self.latest_frame   = frame
             self.video_position = video_time
+            self._push_count += 1
+            if self._push_count <= 3 or self._push_count % 100 == 0:
+                logger.debug(
+                    "FrameBuffer push #%d: video_t=%.2fs (%d bytes)",
+                    self._push_count, video_time, len(jpeg_bytes),
+                )
         except Exception as e:
             logger.warning("FrameBuffer decode error: %s", e)
 

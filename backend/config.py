@@ -36,7 +36,7 @@ class Config:
         "sudden_dodge":      3.0,
         "attack_window":     4.0,
         "sustained_danger":  8.0,
-        "movement_shift":    5.0,
+        "movement_shift":    3.0,
         "pattern_completed": 8.0,
     })
 

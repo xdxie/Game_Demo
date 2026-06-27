@@ -43,9 +43,12 @@ reload_config_from_env()
 _LOG_FILE = _ROOT / "session.log"
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format="%(asctime)s [%(name)s] %(levelname)s %(message)s",
 )
+for _h in logging.getLogger().handlers:
+    if isinstance(_h, logging.StreamHandler) and not isinstance(_h, logging.FileHandler):
+        _h.setLevel(logging.INFO)
 _file_handler = logging.FileHandler(str(_LOG_FILE), mode="w", encoding="utf-8")
 _file_handler.setLevel(logging.DEBUG)
 _file_handler.setFormatter(logging.Formatter(
