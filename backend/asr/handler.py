@@ -323,8 +323,22 @@ class ASRHandler:
                     )
                     text = result["text"].strip()
 
+                if not text:
+                    continue
+
+                # 过滤 Whisper 幻觉（无声时输出的固定短语）
+                _HALLUCINATION = {
+                    "以下是普通话的句子。", "以下是普通话的句子",
+                    "这就是普通话的句子。", "这就是普通话的句子",
+                    "请不吝点赞 订阅 转发 打赏支持明镜与点点栏目",
+                    "字幕由Amara.org社区提供",
+                }
+                if text in _HALLUCINATION:
+                    logger.debug("ASR hallucination filtered: %s", text)
+                    continue
+
                 logger.info("ASR result: %s", text)
-                if text and self.on_utterance:
+                if self.on_utterance:
                     self.on_utterance(text, self._seek_generation)
             except Exception as e:
                 logger.error("Whisper transcribe error: %s", e)

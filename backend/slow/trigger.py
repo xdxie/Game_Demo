@@ -170,6 +170,7 @@ class VLMRequestManager:
             self._last_event_type  = event.type
             self._last_submit_time = time.time()
 
+            logger.info("VLM result → TTS push [%s]: %s", args["priority"].name, text[:60])
             self._tts.push(text, args["priority"])
 
             # 用户问答写入对话历史
@@ -181,7 +182,7 @@ class VLMRequestManager:
             raise
 
         except Exception as e:
-            logger.error("VLM call failed: %s", e)
+            logger.error("VLM call failed [%s]: %s", type(e).__name__, e)
             if args["event"].type == EventType.USER_QUESTION:
                 if self._on_user_error:
                     try:

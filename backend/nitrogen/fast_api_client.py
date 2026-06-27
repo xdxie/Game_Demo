@@ -33,7 +33,7 @@ def predict_jpeg_bytes(
 ) -> dict:
     """单帧推理（供时间线批处理等同步调用）。"""
     base = base_url.rstrip("/")
-    timeout = httpx.Timeout(timeout_sec, connect=15.0)
+    timeout = httpx.Timeout(timeout_sec, connect=3.0)
     with httpx.Client(timeout=timeout) as client:
         if reset:
             client.post(f"{base}/reset")
@@ -163,6 +163,8 @@ class FastApiNitroGenClient:
             logger.info("FastAPI NitroGen /reset OK")
 
     def _predict_frame(self, frame: Image.Image) -> None:
+        if not self._running:
+            return
         with self._signal_lock:
             gen_at_start = self._signal_generation
         try:
@@ -217,6 +219,8 @@ class FastApiNitroGenClient:
                 time.sleep(0.05)
                 continue
             t0 = time.perf_counter()
+            if not self._running:
+                break
             self._predict_frame(frame)
             elapsed = time.perf_counter() - t0
             time.sleep(max(0.0, interval - elapsed))

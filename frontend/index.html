@@ -18,10 +18,24 @@
         </nav>
       </div>
       <div id="status-bar">
+        <label class="header-select">
+          游戏：<select id="game-select"></select>
+        </label>
+        <label class="header-select">
+          音色：<select id="voice-select">
+            <option value="zh_female_cancan_uranus_bigtts">灿灿（活泼女声）</option>
+            <option value="zh_male_abin_uranus_bigtts">阿彬（阳光男声）</option>
+            <option value="zh_female_shuangkuai_moon_bigtts">爽快（干练女声）</option>
+            <option value="zh_male_chunhou_moon_bigtts">淳厚（沉稳男声）</option>
+          </select>
+        </label>
         <span class="dot" id="dot-nitrogen" title="NitroGen 推理状态">NitroGen</span>
         <span class="dot" id="dot-vlm"      title="VLM 处理状态">VLM</span>
         <span id="tts-status">🔇 待机</span>
-        <span id="mic-status">🎤 未连接</span>
+        <label class="header-toggle" title="开启后麦克风收音，可语音提问">
+          <input type="checkbox" id="chk-asr-enabled" />
+          <span id="mic-status">🎤 关</span>
+        </label>
       </div>
     </header>
 
@@ -45,15 +59,6 @@
           <div id="video-controls">
             <button id="btn-start-analysis" class="btn btn-primary">▶ 开始分析</button>
             <button id="btn-stop-analysis"  class="btn btn-danger"   style="display:none">■ 停止</button>
-            <label class="voice-select-label">
-              音色：
-              <select id="voice-select">
-                <option value="zh_female_cancan_uranus_bigtts">灿灿（活泼女声）</option>
-                <option value="zh_male_abin_uranus_bigtts">阿彬（阳光男声）</option>
-                <option value="zh_female_shuangkuai_moon_bigtts">爽快（干练女声）</option>
-                <option value="zh_male_chunhou_moon_bigtts">淳厚（沉稳男声）</option>
-              </select>
-            </label>
           </div>
         </div>
       </section>
@@ -109,6 +114,6 @@
   <!-- Fix 11：隐藏的帧捕获 canvas，256×256 与 NitroGen 输入尺寸一致 -->
   <canvas id="capture-canvas" width="256" height="256" style="display:none"></canvas>
 
-  <script src="/static/app.js?v=20250625-live"></script>
+  <script src="/static/app.js?v=20250627-asr-toggle"></script>
 </body>
 </html>

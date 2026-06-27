@@ -247,8 +247,20 @@ def ssh_tunnel_config_from_env(fast_api_url: str) -> SshTunnelConfig:
     )
 
 
-def ensure_nitrogen_ssh_tunnel(fast_api_url: str) -> bool:
-    cfg = ssh_tunnel_config_from_env(fast_api_url)
+def ensure_nitrogen_ssh_tunnel(fast_api_url: str, app_cfg=None) -> bool:
+    if app_cfg is not None:
+        cfg = SshTunnelConfig(
+            enabled=app_cfg.nitrogen_ssh_tunnel,
+            host=app_cfg.nitrogen_ssh_host,
+            port=app_cfg.nitrogen_ssh_port,
+            user=app_cfg.nitrogen_ssh_user,
+            password=app_cfg.nitrogen_ssh_password,
+            local_port=local_port_from_url(fast_api_url),
+            remote_port=app_cfg.nitrogen_ssh_remote_port,
+            identity_file=app_cfg.nitrogen_ssh_key,
+        )
+    else:
+        cfg = ssh_tunnel_config_from_env(fast_api_url)
     if not cfg.enabled:
         return False
     return start_ssh_tunnel(cfg)

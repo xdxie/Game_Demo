@@ -20,10 +20,10 @@ from backend.nitrogen.parser import PerceptionSignal
 
 # ── 方向中文映射 ──────────────────────────────────────────────────────
 DIRECTION_ZH: dict[str | None, str] = {
-    "LEFT":    "向左",
-    "RIGHT":   "向右",
-    "FORWARD": "向前",
-    "BACK":    "向后",
+    "LEFT":    "左",
+    "RIGHT":   "右",
+    "FORWARD": "前",
+    "BACK":    "后",
     None:      "",
 }
 
@@ -35,7 +35,7 @@ _T = tuple  # (Callable, Callable) - 有方向模板 + 无方向模板
 
 FAST_TEMPLATES: dict[EventType, _T] = {
     EventType.SUDDEN_DODGE: (
-        lambda s: f"{DIRECTION_ZH[s.move_direction]}闪！",
+        lambda s: f"往{DIRECTION_ZH[s.move_direction]}闪！",
         lambda s: "注意，快闪！",
     ),
     EventType.ATTACK_WINDOW: (
@@ -43,7 +43,7 @@ FAST_TEMPLATES: dict[EventType, _T] = {
         lambda s: "进攻！",
     ),
     EventType.SUSTAINED_DANGER: (
-        lambda s: f"持续危险，{DIRECTION_ZH[s.move_direction] or ''}保持闪避",
+        lambda s: f"危险，{DIRECTION_ZH[s.move_direction]}边闪开",
         lambda s: "这段很危险，别停",
     ),
     EventType.MOVEMENT_SHIFT: (

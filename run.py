@@ -58,7 +58,7 @@ if __name__ == "__main__":
                 "请改为 http://localhost:18000，并设 NITROGEN_SSH_REMOTE_PORT=8000"
             )
         try:
-            if ensure_nitrogen_ssh_tunnel(cfg.nitrogen_fast_api_url):
+            if ensure_nitrogen_ssh_tunnel(cfg.nitrogen_fast_api_url, app_cfg=cfg):
                 logger.info(
                     "NitroGen: fast_api → %s（SSH 隧道已自动建立）",
                     cfg.nitrogen_fast_api_url,

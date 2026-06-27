@@ -45,8 +45,9 @@ let wsReconnectAttempts = 0;
 let lastNitrogenErrorMsg = '';
 const WS_RECONNECT_BASE_MS = 1000;
 const WS_RECONNECT_MAX_MS = 15000;
-const APP_BUILD = '20250625-mic';
+const APP_BUILD = '20250627-asr-toggle';
 let pcmSentCount = 0;
+let asrEnabled = false;   // ASR 默认关闭
 const dismissedUtteranceIds = new Set();
 let backendPreparePromise = null;
 let timelineScanPromise = null;
@@ -72,10 +73,36 @@ const dotNitrogen   = $('dot-nitrogen');
 const dotVLM        = $('dot-vlm');
 const ttsStatus     = $('tts-status');
 const micStatus     = $('mic-status');
+const chkAsrEnabled = $('chk-asr-enabled');
 const captureCanvas = $('capture-canvas');   // Fix 11
 const captureCtx    = captureCanvas.getContext('2d');
 const chkVideoAudio = $('chk-video-audio');
 const voiceSelect   = $('voice-select');
+const gameSelect    = $('game-select');
+
+// ── 游戏列表（硬编码）─────────────────────────────────────────────────
+const GAME_LIST = [
+  "街头霸王6","艾尔登法环","只狼：影逝二度","黑神话：悟空","原神",
+  "崩坏：星穹铁道","绝地求生","永劫无间","王者荣耀","英雄联盟",
+  "DOTA 2","反恐精英2","无畏契约","守望先锋2","Apex英雄",
+  "使命召唤：战区","暗黑破坏神4","怪物猎人：荒野","鬼泣5","战神：诸神黄昏",
+  "最终幻想16","塞尔达传说：王国之泪","超级马力欧：惊奇","空洞骑士：丝之歌",
+  "蔚蓝","死亡细胞","哈迪斯","哈迪斯2","以撒的结合","杀戮尖塔",
+  "博德之门3","赛博朋克2077","荒野大镖客2","侠盗猎车手5",
+  "生化危机4 重制版","寂静岭2 重制版","血源诅咒","黑暗之魂3",
+  "仁王2","对马岛之魂","最后生还者 Part II","地平线：西之绝境",
+  "星露谷物语","动物森友会","我的世界","泰拉瑞亚",
+  "文明6","全面战争：三国","火焰纹章：风花雪月","女神异闻录5 皇家版",
+];
+if (gameSelect) {
+  gameSelect.innerHTML = '';
+  for (const name of GAME_LIST) {
+    const opt = document.createElement('option');
+    opt.value = name;
+    opt.textContent = name;
+    gameSelect.appendChild(opt);
+  }
+}
 
 // ── 文件选择 ──────────────────────────────────────────────────────────
 fileInput.addEventListener('change', e => {
@@ -398,6 +425,24 @@ if (voiceSelect) {
   voiceSelect.addEventListener('change', () => {
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: 'set_voice', speaker: voiceSelect.value }));
+    }
+  });
+}
+
+if (gameSelect) {
+  gameSelect.addEventListener('change', () => {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'set_game', game: gameSelect.value }));
+    }
+  });
+}
+
+if (chkAsrEnabled) {
+  chkAsrEnabled.addEventListener('change', () => {
+    asrEnabled = chkAsrEnabled.checked;
+    micStatus.textContent = asrEnabled ? '🎤 开' : '🎤 关';
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'set_asr', enabled: asrEnabled }));
     }
   });
 }
@@ -880,6 +925,7 @@ async function primeMicrophoneOnUserGesture() {
 }
 
 function sendPcmToServer(samples) {
+  if (!asrEnabled) return;
   if (!isPrimaryClient || !ws || ws.readyState !== WebSocket.OPEN) return;
   const pcm16 = float32ToPCM16(samples);
   const msg = new Uint8Array(1 + pcm16.byteLength);

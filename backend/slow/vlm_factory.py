@@ -3,6 +3,7 @@
 from __future__ import annotations
 import logging
 import os
+import traceback
 
 from PIL import Image
 
@@ -89,17 +90,24 @@ async def call_vlm(
         )
 
     if provider == "openai":
-        return await call_vlm_openai(
-            event=event,
-            frame=frame,
-            ctx_summary=ctx_summary,
-            last_fast_text=last_fast_text,
-            actions_timeline_text=actions_timeline_text,
-            user_question=user_question,
-            conversation_history=conversation_history,
-            cfg=cfg,
-            include_nitrogen=nitrogen,
-        )
+        try:
+            return await call_vlm_openai(
+                event=event,
+                frame=frame,
+                ctx_summary=ctx_summary,
+                last_fast_text=last_fast_text,
+                actions_timeline_text=actions_timeline_text,
+                user_question=user_question,
+                conversation_history=conversation_history,
+                cfg=cfg,
+                include_nitrogen=nitrogen,
+            )
+        except Exception as e:
+            logger.error(
+                "VLM factory: call_vlm_openai raised %s: %s\n%s",
+                type(e).__name__, e, traceback.format_exc(),
+            )
+            raise
 
     return await vlm_client.call_vlm(
         event=event,

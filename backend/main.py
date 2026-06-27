@@ -116,6 +116,18 @@ async def _on_startup():
         except Exception as e:
             logger.warning("SSH tunnel auto-start failed: %s", e)
     await warmup.start_background_warmup(cfg)
+
+    # VLM 连通性自检
+    if vlm_provider(cfg) == "openai":
+        loop = asyncio.get_running_loop()
+        from backend.slow.vlm_openai import selftest as vlm_selftest
+        try:
+            ok = await loop.run_in_executor(None, vlm_selftest, cfg)
+            if not ok:
+                logger.error("VLM selftest FAILED — 慢系统将无法响应")
+        except Exception as e:
+            logger.error("VLM selftest exception: %s", e)
+
     if not _websocket_stack_ready():
         logger.warning(
             "websockets 未安装：/ws 将无法升级，麦克风与推帧均不可用。"
@@ -131,8 +143,16 @@ async def _on_startup():
 
 @app.on_event("shutdown")
 async def _on_shutdown():
+    global _session
+    if _session is not None:
+        try:
+            _session.nitrogen.stop()
+        except Exception:
+            pass
     from backend.nitrogen.ssh_tunnel import stop_ssh_tunnel
     stop_ssh_tunnel()
+    import os
+    os._exit(0)
 
 
 def _reassign_primary_from_players() -> Optional[WebSocket]:
@@ -222,6 +242,7 @@ class GameSession:
         self._pcm_chunk_count = 0
         self._video_frame_count = 0
         self._t0: float = 0.0
+        self.current_game: str = "街头霸王6"
 
         self.frame_buffer = FrameBuffer()
         self.nitrogen = create_nitrogen_client(cfg)
@@ -461,6 +482,7 @@ class GameSession:
                         global_min_interval=self.cfg.global_tts_min_interval,
                     )
                     if event is not None:
+                        self._tlog("事件", f"{event.type.value} fast={event.trigger_fast} slow={event.trigger_slow}")
                         await self._handle_event(event)
 
             last_err = getattr(self.nitrogen, "last_error", None)
@@ -756,6 +778,14 @@ async def index():
 @app.get("/favicon.ico")
 async def favicon():
     return HTMLResponse(status_code=204)
+
+
+@app.get("/api/games")
+async def games_list():
+    games_file = Path(__file__).parent / "games.json"
+    if games_file.exists():
+        return JSONResponse(json.loads(games_file.read_text(encoding="utf-8")))
+    return JSONResponse([])
 
 
 @app.get("/probe")
@@ -1211,6 +1241,21 @@ async def websocket_endpoint(ws: WebSocket):
                             _session.tts_engine._volc_speaker = speaker
                             _session.tts_engine._cache.clear()
                             logger.info("Voice changed to: %s", speaker)
+
+                    elif mtype == "set_game" and _session:
+                        game = data.get("game", "")
+                        if game:
+                            _session.current_game = game
+                            logger.info("Game changed to: %s", game)
+
+                    elif mtype == "set_asr" and _session:
+                        enabled = data.get("enabled", False)
+                        if enabled:
+                            _session.asr_handler.force_unmute()
+                            logger.info("ASR enabled by user")
+                        else:
+                            _session.asr_handler.mute()
+                            logger.info("ASR disabled by user")
 
                 except Exception as e:
                     logger.error("WS JSON error: %s", e)
