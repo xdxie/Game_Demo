@@ -347,6 +347,7 @@ class GameSession:
             on_busy_change=self._on_vlm_busy_change,
             on_user_error=self._on_vlm_user_error,
             vlm_nitrogen_input=cfg.vlm_nitrogen_input,
+            game_name=self.current_game,
         )
 
         self.tts_queue.set_callbacks(
@@ -1343,6 +1344,7 @@ async def websocket_endpoint(ws: WebSocket):
                         game = data.get("game", "")
                         if game:
                             _session.current_game = game
+                            _session.vlm_manager._game_name = game
                             logger.info("Game changed to: %s", game)
 
                     elif mtype == "set_asr" and _session:

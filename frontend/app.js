@@ -1079,7 +1079,7 @@ function addSystemMsg(text) {
 
 // ── 工具函数 ──────────────────────────────────────────────────────────
 function channelLabel(ch) {
-  return { fast: '教练', slow: '陪玩', user_answer: 'AI', user: '你' }[ch] || ch;
+  return { fast: '教练', slow: '陪玩', user_answer: '陪玩', user: '你' }[ch] || ch;
 }
 function formatTime(sec) {
   const m = Math.floor(sec / 60);

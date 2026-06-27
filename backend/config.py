@@ -222,3 +222,25 @@ def get_config() -> Config:
         if _config.vlm_api_key and os.getenv("VLM_MOCK") is None:
             _config.vlm_mock = False
     return _config
+
+
+GAME_TYPE_MAP: dict[str, str] = {
+    "街头霸王6": "street_fighter6",
+    "黑神话：悟空": "black_myth_wukong",
+    "超级马力欧：惊奇": "platformer",
+    "蔚蓝": "platformer",
+    "空洞骑士：丝之歌": "platformer",
+    "死亡细胞": "platformer",
+    "哈迪斯": "platformer",
+    "哈迪斯2": "platformer",
+    "艾尔登法环": "black_myth_wukong",
+    "只狼：影逝二度": "black_myth_wukong",
+    "血源诅咒": "black_myth_wukong",
+    "黑暗之魂3": "black_myth_wukong",
+    "仁王2": "black_myth_wukong",
+    "鬼泣5": "black_myth_wukong",
+}
+
+
+def game_type_for(game_name: str) -> str:
+    return GAME_TYPE_MAP.get(game_name, "general")

@@ -47,6 +47,7 @@ class VLMRequestManager:
         on_user_error: Optional[Callable[[str], None]] = None,
         min_busy_display_sec: float = 0.45,
         vlm_nitrogen_input: bool = False,
+        game_name: str = "",
     ):
         self._tts       = tts_queue
         self._ctx       = context_buffer
@@ -62,6 +63,7 @@ class VLMRequestManager:
         self._on_user_error = on_user_error
         self._min_busy_display_sec = min_busy_display_sec
         self._vlm_nitrogen_input = vlm_nitrogen_input
+        self._game_name = game_name
 
         self._current_task: Optional[asyncio.Task] = None
         self._pending: Optional[dict] = None
@@ -139,6 +141,16 @@ class VLMRequestManager:
 
             event    = args["event"]
             is_user_q = (event.type == EventType.USER_QUESTION)
+
+            rule_text = self._try_rule_response(event)
+            if rule_text:
+                logger.info("ReviewCoach rule → TTS push [%s]: %s", args["priority"].name, rule_text[:60])
+                self._tts.push(rule_text, args["priority"])
+                if is_user_q:
+                    self._conv_hist.add_turn(event.user_text, rule_text)
+                self._last_event_type  = event.type
+                self._last_submit_time = time.time()
+                return
 
             actions_text = ""
             if self._vlm_nitrogen_input and self._get_actions_timeline_text:
@@ -246,3 +258,34 @@ class VLMRequestManager:
         if event.type == EventType.GREETING:
             return Priority.SLOW_ADVICE
         return Priority.SLOW_ADVICE
+
+    def _try_rule_response(self, event: GameEvent) -> str | None:
+        if not self._game_name:
+            return None
+        query = getattr(event, "user_text", "") or ""
+        if not query:
+            return None
+        try:
+            from review_coach.review_coach import ReviewCoach
+            from review_coach.schemas import ReviewRequest
+            from backend.config import game_type_for
+
+            game_type = game_type_for(self._game_name)
+            coach = ReviewCoach()
+            skill = coach._select_skill(game_type)
+            request = ReviewRequest(
+                game_type=game_type,
+                game_name=self._game_name,
+                query=query,
+                image_paths=[],
+            )
+            rule_result = skill.build_rule_response(request, "")
+            if rule_result and rule_result.get("coaching_text"):
+                logger.info(
+                    "ReviewCoach rule hit [%s]: %s",
+                    game_type, rule_result["coaching_text"][:40],
+                )
+                return rule_result["coaching_text"]
+        except Exception as e:
+            logger.debug("ReviewCoach rule check failed: %s", e)
+        return None
