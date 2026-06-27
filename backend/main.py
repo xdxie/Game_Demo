@@ -40,11 +40,21 @@ load_dotenv(_ROOT / ".env")
 from backend.config import reload_config_from_env
 reload_config_from_env()
 
+_LOG_FILE = _ROOT / "session.log"
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(name)s] %(levelname)s %(message)s",
 )
+_file_handler = logging.FileHandler(str(_LOG_FILE), mode="w", encoding="utf-8")
+_file_handler.setLevel(logging.DEBUG)
+_file_handler.setFormatter(logging.Formatter(
+    "%(asctime)s [%(name)s] %(levelname)s %(message)s"
+))
+logging.getLogger().addHandler(_file_handler)
+
 logger = logging.getLogger(__name__)
+logger.info("日志文件: %s (每次启动清空)", _LOG_FILE)
 
 
 def _websocket_stack_ready() -> bool:
