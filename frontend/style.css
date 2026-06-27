@@ -241,24 +241,43 @@ input[type="file"] { display: none; }
   overflow: hidden;
 }
 
-#chat-header {
+.chat-panel {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+}
+
+#chat-fast-panel {
+  flex: 0 0 35%;
+  border-bottom: 1px solid var(--border);
+}
+
+#chat-slow-panel {
+  flex: 1;
+}
+
+.chat-panel-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 16px;
+  padding: 6px 16px;
   border-bottom: 1px solid var(--border);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 500;
   flex-shrink: 0;
 }
 
-#chat-messages {
+.chat-panel-header.fast { color: var(--fast); background: rgba(245,158,11,0.06); }
+.chat-panel-header.slow { color: var(--slow); background: rgba(16,185,129,0.06); }
+
+.chat-messages-area {
   flex: 1;
   overflow-y: auto;
-  padding: 12px 14px;
+  padding: 8px 14px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .chat-placeholder {

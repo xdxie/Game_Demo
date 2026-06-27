@@ -64,12 +64,22 @@
       </section>
 
       <section id="chat-section">
-        <div id="chat-header">
-          <span>💬 对话记录</span>
-          <button id="btn-clear-chat" class="btn-small">清空</button>
+        <div id="chat-fast-panel" class="chat-panel">
+          <div class="chat-panel-header fast">
+            <span>⚡ 快系统</span>
+          </div>
+          <div id="chat-fast" class="chat-messages-area">
+            <div class="chat-placeholder">快系统提示会显示在这里</div>
+          </div>
         </div>
-        <div id="chat-messages">
-          <div class="chat-placeholder">分析开始后，AI 提示和你的问题会显示在这里</div>
+        <div id="chat-slow-panel" class="chat-panel">
+          <div class="chat-panel-header slow">
+            <span>🧠 慢系统</span>
+            <button id="btn-clear-chat" class="btn-small">清空</button>
+          </div>
+          <div id="chat-slow" class="chat-messages-area">
+            <div class="chat-placeholder">慢系统回复和你的提问会显示在这里</div>
+          </div>
         </div>
       </section>
 
@@ -114,6 +124,6 @@
   <!-- Fix 11：隐藏的帧捕获 canvas，256×256 与 NitroGen 输入尺寸一致 -->
   <canvas id="capture-canvas" width="256" height="256" style="display:none"></canvas>
 
-  <script src="/static/app.js?v=20250627-asr-toggle"></script>
+  <script src="/static/app.js?v=20250627-split-chat"></script>
 </body>
 </html>

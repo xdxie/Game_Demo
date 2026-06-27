@@ -45,7 +45,7 @@ let wsReconnectAttempts = 0;
 let lastNitrogenErrorMsg = '';
 const WS_RECONNECT_BASE_MS = 1000;
 const WS_RECONNECT_MAX_MS = 15000;
-const APP_BUILD = '20250627-asr-toggle';
+const APP_BUILD = '20250627-split-chat';
 let pcmSentCount = 0;
 let asrEnabled = false;   // ASR 默认关闭
 const dismissedUtteranceIds = new Set();
@@ -68,7 +68,8 @@ const btnStart      = $('btn-start-analysis');
 const btnStop       = $('btn-stop-analysis');
 const btnClearChat  = $('btn-clear-chat');
 const prepareStatus = $('prepare-status');
-const chatMessages  = $('chat-messages');
+const chatFast      = $('chat-fast');
+const chatSlow      = $('chat-slow');
 const dotNitrogen   = $('dot-nitrogen');
 const dotVLM        = $('dot-vlm');
 const ttsStatus     = $('tts-status');
@@ -396,7 +397,8 @@ if (clientMode === 'player') {
 }
 
 btnClearChat.addEventListener('click', () => {
-  chatMessages.innerHTML = '';
+  chatFast.innerHTML = '';
+  chatSlow.innerHTML = '';
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: 'clear_conversation' }));
   }
@@ -625,7 +627,8 @@ function handleServerMessage(msg) {
 
     case 'tts':
       if (msg.text) {
-        addChatMessage(msg.channel, msg.text, msg.video_time, msg.utterance_id);
+        const displayText = msg.channel === 'user' ? toSimplified(msg.text) : msg.text;
+        addChatMessage(msg.channel, displayText, msg.video_time, msg.utterance_id);
       }
       if (msg.playing && msg.utterance_id != null) {
         pendingUtteranceId = msg.utterance_id;
@@ -725,7 +728,8 @@ function handleServerMessage(msg) {
       break;
 
     case 'conversation_cleared':
-      chatMessages.innerHTML = '';
+      chatFast.innerHTML = '';
+      chatSlow.innerHTML = '';
       break;
   }
 }
@@ -1047,9 +1051,24 @@ function float32ToPCM16(float32) {
   return buf;
 }
 
+// ── 繁体→简体 常用字映射 ──────────────────────────────────────────────
+const T2S_MAP = '東东車车門门馬马風风龍龙鳥鸟魚鱼學学書书電电飛飞語语說说話话買买開开關关點点頭头聽听見见問问題题讓让還还機机時时會会對对從从過过這这裡里後后單单員员區区實实際际經经統统處处國国報报業业資资現现環环體体發发產产總总進进運运選选達达邊边連连動动應应種种數数與与無无場场變变聯联腦脑離离難难觀观歲岁則则參参決决結结組组當当將将歡欢傳传豐丰準准極极護护齊齐廣广億亿鐵铁隨随優优農农給给輸输親亲線线節节辦办調调傑杰聲声壓压歷历構构響响權权築筑廳厅競竞義义確确標标據据條条築筑費费勢势質质監监損损試试鮮鲜隊队覺觉專专戰战練练層层認认師师較较論论穩稳許许創创評评際际協协識识驗验歸归養养燈灯燒烧壞坏頻频編编擊击護护獨独額额術术閱阅齡龄遠远複复屬属導导齒齿藝艺類类記记設设訓训雜杂輕轻紀纪貴贵軍军覆复範范構构貿贸幣币圖图銀银獎奖簡简衝冲績绩療疗帶带塊块歲岁陽阳歐欧殘残薦荐壇坛華华慶庆寶宝濟济嗎吗劇剧鄰邻搶抢闆板蘭兰禮礼紅红壽寿衛卫兩两個个網网張张長长開开頁页幫帮'.split('');
+const _t2s = {};
+for (let i = 0; i < T2S_MAP.length; i += 2) {
+  _t2s[T2S_MAP[i]] = T2S_MAP[i + 1];
+}
+function toSimplified(text) {
+  let out = '';
+  for (const ch of text) out += _t2s[ch] || ch;
+  return out;
+}
+
 // ── 对话面板 ──────────────────────────────────────────────────────────
 function addChatMessage(channel, text, videoTime, utteranceId) {
-  const placeholder = chatMessages.querySelector('.chat-placeholder');
+  const isFast = (channel === 'fast');
+  const container = isFast ? chatFast : chatSlow;
+
+  const placeholder = container.querySelector('.chat-placeholder');
   if (placeholder) placeholder.remove();
 
   const timeStr = videoTime != null ? formatTime(videoTime) : '';
@@ -1065,15 +1084,16 @@ function addChatMessage(channel, text, videoTime, utteranceId) {
     </div>
     <div class="msg-body">${escapeHtml(text)}</div>
   `;
-  chatMessages.appendChild(el);
-  chatMessages.scrollTop = chatMessages.scrollHeight;
+  container.appendChild(el);
+  container.scrollTop = container.scrollHeight;
   return el;
 }
 
 function highlightPlayingMessage(utteranceId) {
   clearPlayingHighlight();
   if (utteranceId == null) return;
-  const el = chatMessages.querySelector(`[data-utterance-id="${utteranceId}"]`);
+  const el = chatFast.querySelector(`[data-utterance-id="${utteranceId}"]`)
+          || chatSlow.querySelector(`[data-utterance-id="${utteranceId}"]`);
   if (el) {
     el.classList.add('playing');
     playingMsgEl = el;
@@ -1104,8 +1124,8 @@ function addSystemMsg(text) {
   const el = document.createElement('div');
   el.style.cssText = 'color:#64748b;font-size:12px;text-align:center;padding:4px 0';
   el.textContent = text;
-  chatMessages.appendChild(el);
-  chatMessages.scrollTop = chatMessages.scrollHeight;
+  chatSlow.appendChild(el);
+  chatSlow.scrollTop = chatSlow.scrollHeight;
 }
 
 // ── 工具函数 ──────────────────────────────────────────────────────────

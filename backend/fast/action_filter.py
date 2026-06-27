@@ -68,6 +68,13 @@ class ActionFilter:
         # float('-inf') 确保游戏开始时第一个事件不被全局间隔阻挡
         self._last_any_trigger: float = float('-inf')
 
+        # 诊断计数器
+        self._signal_count: int = 0
+        self._last_diag_time: float = 0.0
+        self._intent_counts: dict[str, int] = {}
+        self._filtered_global: int = 0
+        self._filtered_cooldown: int = 0
+
     def process(self,
                 signal: PerceptionSignal,
                 video_time: float,
@@ -76,12 +83,26 @@ class ActionFilter:
         """
         每收到新的感知信号时调用（约 10fps）。
         返回 None 表示无需触发任何通道。
-
-        Args:
-            signal: 当前帧感知信号
-            video_time: 当前视频时间（秒）
-            global_min_interval: 全局最小被动播报间隔
         """
+        # 诊断：每 10 秒打印意图分布
+        self._signal_count += 1
+        intent = signal.primary_intent or "UNKNOWN"
+        self._intent_counts[intent] = self._intent_counts.get(intent, 0) + 1
+        if video_time - self._last_diag_time >= 10.0:
+            dist = " ".join(f"{k}:{v}" for k, v in sorted(self._intent_counts.items()))
+            logger.info(
+                "ActionFilter 10s统计: signals=%d intents=[%s] conf=%.2f "
+                "filtered(global=%d cooldown=%d) change=%s dir=%s",
+                self._signal_count, dist, signal.confidence,
+                self._filtered_global, self._filtered_cooldown,
+                signal.is_action_change, signal.move_direction,
+            )
+            self._intent_counts.clear()
+            self._signal_count = 0
+            self._filtered_global = 0
+            self._filtered_cooldown = 0
+            self._last_diag_time = video_time
+
         event = self._detect(signal, video_time)
 
         if event is None:
@@ -92,6 +113,13 @@ class ActionFilter:
         if (self._last_any_trigger != float('-inf')
                 and video_time >= self._last_any_trigger
                 and video_time - self._last_any_trigger < global_min_interval):
+            self._filtered_global += 1
+            logger.info(
+                "ActionFilter 全局间隔过滤: %s (距上次 %.1fs < %.1fs)",
+                event.type.value,
+                video_time - self._last_any_trigger,
+                global_min_interval,
+            )
             self._prev_signal = signal
             return None
 
@@ -101,6 +129,13 @@ class ActionFilter:
         if (last != float('-inf')
                 and video_time >= last
                 and video_time - last < cooldown):
+            self._filtered_cooldown += 1
+            logger.info(
+                "ActionFilter 冷却过滤: %s (距上次 %.1fs < %.1fs)",
+                event.type.value,
+                video_time - last,
+                cooldown,
+            )
             self._prev_signal = signal
             return None
 
@@ -109,8 +144,9 @@ class ActionFilter:
         self._last_any_trigger = video_time
         self._prev_signal = signal
 
-        logger.debug("EventTrigger: %s @ %.2fs (conf=%.2f)",
-                     event.type.value, video_time, signal.confidence)
+        logger.info("ActionFilter 触发: %s @ %.2fs (conf=%.2f, fast=%s slow=%s)",
+                     event.type.value, video_time, signal.confidence,
+                     event.trigger_fast, event.trigger_slow)
         return event
 
     def reset(self):
