@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import struct
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -220,6 +221,7 @@ class GameSession:
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._pcm_chunk_count = 0
         self._video_frame_count = 0
+        self._t0: float = 0.0
 
         self.frame_buffer = FrameBuffer()
         self.nitrogen = create_nitrogen_client(cfg)
@@ -314,10 +316,16 @@ class GameSession:
     def _actions_timeline_text(self, t_sec: float) -> str:
         return self.action_timeline.summary_near(t_sec)
 
+    def _tlog(self, tag: str, text: str):
+        """终端对话时间线日志：T+秒数 [标签] 内容"""
+        elapsed = time.time() - self._t0 if self._t0 else 0
+        print(f"  T+{elapsed:6.1f}s  [{tag}]  {text}", flush=True)
+
     # ── 生命周期 ──────────────────────────────────────────────────────
 
     async def start(self):
         """启动推理与分析循环（不再需要打开视频文件）"""
+        self._t0 = time.time()
         self._loop = asyncio.get_running_loop()
         if warmup.get_status()["status"] != "ready":
             await warmup.ensure_warmup(self.cfg)
@@ -331,6 +339,11 @@ class GameSession:
         await self._broadcast({"type": "status", "state": "started"})
         await self._broadcast_asr_state()
         cfg = self.cfg
+        print("\n" + "─" * 60)
+        print("  分析开始  T=0")
+        print(f"  NitroGen={nitrogen_mode_label(cfg)}  VLM={vlm_provider(cfg)}/{cfg.vlm_model}")
+        print(f"  TTS={cfg.tts_engine}  ASR={cfg.asr_engine}  VAD阈值={cfg.vad_silence_threshold}")
+        print("─" * 60, flush=True)
         logger.info(
             "GameSession started (nitrogen=%s, vlm=%s/%s, fast_tts=%s)",
             nitrogen_mode_label(cfg),
@@ -354,6 +367,9 @@ class GameSession:
             await asyncio.wait_for(self.vlm_manager.cancel_all(), timeout=0.3)
         except asyncio.TimeoutError:
             logger.warning("VLM cancel timed out on stop")
+        elapsed = time.time() - self._t0 if self._t0 else 0
+        print(f"\n  分析结束  总时长 {elapsed:.0f}s")
+        print("─" * 60, flush=True)
         logger.info("GameSession stopped")
 
     async def _broadcast_asr_state(self, ws: WebSocket | None = None):
@@ -464,6 +480,7 @@ class GameSession:
             text = render_fast(event)
             self.fast_hist.record(event.timestamp, text)
             if seek_gen == self.asr_handler.seek_generation:
+                self._tlog("快提示", text)
                 self.tts_queue.push(text, Priority.FAST_HINT)
 
         if event.trigger_slow:
@@ -485,6 +502,7 @@ class GameSession:
 
     def _on_user_utterance(self, text: str, utterance_gen: int):
         """ASR 转写完成回调（在转写线程中调用）"""
+        self._tlog("用户说", text)
         logger.info("User question: %s", text)
         self._schedule(self._handle_user_utterance(text, utterance_gen))
 
@@ -639,6 +657,7 @@ class GameSession:
         self._schedule(self._broadcast({"type": "vlm_state", "busy": busy}))
 
     def _on_vlm_user_error(self, message: str):
+        self._tlog("VLM错误", message)
         self._schedule(self._broadcast({
             "type": "status",
             "state": "vlm_error",
@@ -659,6 +678,8 @@ class GameSession:
 
     def _on_tts_subtitle(self, text: str, channel: str, utterance_id: int):
         """字幕先出（合成中），此时不 mute 麦克风。"""
+        tag = {"user_answer": "教练答", "fast": "快播报", "slow": "慢播报"}.get(channel, channel)
+        self._tlog(tag, text)
         self._schedule(self._broadcast({
             "type":          "tts",
             "utterance_id":  utterance_id,
@@ -671,6 +692,7 @@ class GameSession:
 
     def _on_tts_playback(self, utterance_id: int, channel: str):
         """MP3 就绪、即将播放 → 此时才 mute 麦克风。"""
+        self._tlog("播报中", f"#{utterance_id} 开始播放")
         self._schedule(self._broadcast({
             "type":          "tts",
             "utterance_id":  utterance_id,

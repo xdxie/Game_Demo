@@ -33,11 +33,11 @@ class Config:
 
     # 各事件类型冷却时间（秒）
     cooldowns: dict = field(default_factory=lambda: {
-        "sudden_dodge":      3.0,
-        "attack_window":     4.0,
-        "sustained_danger":  8.0,
-        "movement_shift":   4.0,
-        "pattern_completed": 5.0,
+        "sudden_dodge":      5.0,
+        "attack_window":     6.0,
+        "sustained_danger":  10.0,
+        "movement_shift":   15.0,
+        "pattern_completed": 8.0,
     })
 
     # ── 慢系统：VLM（4号负责调优）────────────────────────────────────
@@ -86,7 +86,7 @@ class Config:
     barge_in_threshold_mult: float = 2.0   # 打断阈值 = 静音阈值 × 此系数（防视频串音）
 
     # ── 全局播报频率上限（硬限制）────────────────────────────────────
-    global_tts_min_interval: float = 2.0    # 任意两次被动播报之间至少间隔（秒）
+    global_tts_min_interval: float = 8.0    # 任意两次被动播报之间至少间隔（秒）
 
 
 # 全局单例

@@ -47,8 +47,8 @@ FAST_TEMPLATES: dict[EventType, _T] = {
         lambda s: "这段很危险，别停",
     ),
     EventType.MOVEMENT_SHIFT: (
-        lambda s: f"AI 建议{DIRECTION_ZH[s.move_direction]}走",
-        lambda s: "注意移动方向",
+        lambda s: f"往{DIRECTION_ZH[s.move_direction]}走",
+        lambda s: "换个方向走",
     ),
 }
 
