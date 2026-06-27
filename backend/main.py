@@ -119,7 +119,7 @@ _pcm_drop_logged: bool = False
 
 @app.on_event("startup")
 async def _on_startup():
-    """服务启动即后台预热 Whisper/TTS，缩短首次「开始分析」等待。"""
+    """服务启动时阻塞预热 Whisper/TTS，启动完成即可直接使用。"""
     cfg = get_config()
     from backend.nitrogen.factory import nitrogen_mode_label
     if nitrogen_mode_label(cfg) == "fast_api":
@@ -128,18 +128,23 @@ async def _on_startup():
             ensure_nitrogen_ssh_tunnel(cfg.nitrogen_fast_api_url)
         except Exception as e:
             logger.warning("SSH tunnel auto-start failed: %s", e)
-    await warmup.start_background_warmup(cfg)
 
-    # VLM 连通性自检
+    logger.info("Startup: 预热 Whisper + TTS …")
+    await warmup.ensure_warmup(cfg)
+    logger.info("Startup: 预热完成")
+
+    # VLM 连通性自检（后台，不阻塞启动）
     if vlm_provider(cfg) == "openai":
-        loop = asyncio.get_running_loop()
-        from backend.slow.vlm_openai import selftest as vlm_selftest
-        try:
-            ok = await loop.run_in_executor(None, vlm_selftest, cfg)
-            if not ok:
-                logger.error("VLM selftest FAILED — 慢系统将无法响应")
-        except Exception as e:
-            logger.error("VLM selftest exception: %s", e)
+        async def _vlm_selftest():
+            loop = asyncio.get_running_loop()
+            from backend.slow.vlm_openai import selftest as vlm_selftest
+            try:
+                ok = await loop.run_in_executor(None, vlm_selftest, cfg)
+                if not ok:
+                    logger.error("VLM selftest FAILED — 慢系统将无法响应")
+            except Exception as e:
+                logger.error("VLM selftest exception: %s", e)
+        asyncio.create_task(_vlm_selftest())
 
     if not _websocket_stack_ready():
         logger.warning(
@@ -1149,15 +1154,25 @@ async def start_session():
     cfg = get_config()
     backend = nitrogen_mode_label(cfg)
     vlm_mode = vlm_provider(cfg)
+
+    # NitroGen health check 移到后台，不阻塞 /start 返回
     nitrogen_health_data = None
     if backend == "fast_api":
-        import os
-        from backend.nitrogen.health import check_fast_api_health
-        url = os.getenv("NITROGEN_FAST_API_URL", cfg.nitrogen_fast_api_url)
-        loop = asyncio.get_running_loop()
-        nitrogen_health_data = await loop.run_in_executor(
-            None, lambda: check_fast_api_health(url, probe_predict=False),
-        )
+        async def _bg_health():
+            import os
+            from backend.nitrogen.health import check_fast_api_health
+            url = os.getenv("NITROGEN_FAST_API_URL", cfg.nitrogen_fast_api_url)
+            loop = asyncio.get_running_loop()
+            result = await loop.run_in_executor(
+                None, lambda: check_fast_api_health(url, probe_predict=False),
+            )
+            if _session and not result.get("ok"):
+                await _session._broadcast({
+                    "type": "status", "state": "nitrogen_health_warning",
+                    "message": result.get("message", "NitroGen 未就绪"),
+                })
+        asyncio.create_task(_bg_health())
+
     return {
         "status": "ok",
         "nitrogen_mode": "mock" if backend == "mock" else "live",

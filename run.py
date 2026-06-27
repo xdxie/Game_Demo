@@ -85,9 +85,21 @@ if __name__ == "__main__":
             "请执行: pip install \"uvicorn[standard]\" websockets"
         )
     print("\n" + "=" * 50)
-    print("  浏览器将自动打开: http://localhost:8000")
+    print("  正在预热 Whisper + TTS，完成后自动打开浏览器 …")
     print("=" * 50 + "\n")
-    threading.Timer(1.5, lambda: webbrowser.open("http://localhost:8000")).start()
+
+    def _open_when_ready():
+        import urllib.request
+        for _ in range(120):
+            try:
+                urllib.request.urlopen("http://localhost:8000/prepare/status", timeout=1)
+                webbrowser.open("http://localhost:8000")
+                return
+            except Exception:
+                import time
+                time.sleep(1)
+
+    threading.Thread(target=_open_when_ready, daemon=True).start()
     uvicorn.run(
         "backend.main:app",
         host="0.0.0.0",
