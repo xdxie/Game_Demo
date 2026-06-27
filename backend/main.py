@@ -261,6 +261,7 @@ class GameSession:
         self._video_frame_count = 0
         self._t0: float = 0.0
         self.current_game: str = "街头霸王6"
+        self.current_game_id: str = "street_fighter_6"
         self._first_frame_greeted = False
 
         self.frame_buffer = FrameBuffer()
@@ -523,7 +524,7 @@ class GameSession:
         seek_gen = self.asr_handler.seek_generation
 
         if event.trigger_fast and self.cfg.fast_tts_enabled:
-            text = render_fast(event)
+            text = render_fast(event, self.current_game_id)
             self.fast_hist.record(event.timestamp, text)
             if seek_gen == self.asr_handler.seek_generation:
                 self._tlog("快提示", text)
@@ -1342,10 +1343,13 @@ async def websocket_endpoint(ws: WebSocket):
 
                     elif mtype == "set_game" and _session:
                         game = data.get("game", "")
+                        game_id = data.get("game_id", "")
                         if game:
                             _session.current_game = game
                             _session.vlm_manager._game_name = game
-                            logger.info("Game changed to: %s", game)
+                        if game_id:
+                            _session.current_game_id = game_id
+                        logger.info("Game changed: %s (id=%s)", game, game_id)
 
                     elif mtype == "set_asr" and _session:
                         enabled = data.get("enabled", False)
