@@ -49,6 +49,7 @@ class ActionFilter:
             EventType.SUSTAINED_DANGER:  8.0,
             EventType.MOVEMENT_SHIFT:   10.0,
             EventType.PATTERN_COMPLETED: 5.0,
+            EventType.BUTTON_PRESS:      1.2,
         }
         if cooldowns:
             for k, v in cooldowns.items():
@@ -246,25 +247,73 @@ class ActionFilter:
             return self._make_event(EventType.PATTERN_COMPLETED, t, signal,
                                     fast=False, slow=True)
 
-        # ── 检测5：移动方向突变 ────────────────────────────────────────
+        # ── 检测5：移动方向突变（幅度 > 0.7 才算有意义的大幅转向）────────
         if (prev is not None
                 and signal.move_direction is not None
                 and prev.move_direction is not None
                 and signal.move_direction != prev.move_direction
-                and signal.move_magnitude > 0.5):
+                and signal.move_magnitude > 0.7):
             return self._make_event(EventType.MOVEMENT_SHIFT, t, signal,
                                     fast=True, slow=False)
+
+        # ── 检测6：按键边沿（兜底，意图类事件无结果时才触发）──────────
+        cur_btns  = self._parse_pressed_names(signal.pressed_buttons)
+        prev_btns = self._parse_pressed_names(prev.pressed_buttons) if prev else set()
+        new_btns  = cur_btns - prev_btns
+        if new_btns:
+            btn = self._pick_strongest_button(signal.pressed_buttons, new_btns)
+            if btn:
+                return self._make_event(EventType.BUTTON_PRESS, t, signal,
+                                        fast=True, slow=False, button_name=btn)
 
         return None
 
     @staticmethod
+    def _parse_pressed_names(raw: list | None) -> set:
+        """从 ['SOUTH(0.9)', 'EAST(0.4)'] 提取置信度 >= 0.5 的按键名集合。"""
+        if not raw:
+            return set()
+        out: set[str] = set()
+        for entry in raw:
+            name = entry.split("(")[0].strip()
+            try:
+                conf = float(entry.split("(")[1].rstrip(")")) if "(" in entry else 1.0
+            except (IndexError, ValueError):
+                conf = 1.0
+            if conf >= 0.5 and name:
+                out.add(name)
+        return out
+
+    @staticmethod
+    def _pick_strongest_button(raw: list | None, candidates: set) -> str | None:
+        """在 candidates 里选置信度最高的按键名。"""
+        if not raw:
+            return None
+        best_name: str | None = None
+        best_conf: float = -1.0
+        for entry in raw:
+            name = entry.split("(")[0].strip()
+            if name not in candidates:
+                continue
+            try:
+                conf = float(entry.split("(")[1].rstrip(")")) if "(" in entry else 1.0
+            except (IndexError, ValueError):
+                conf = 1.0
+            if conf > best_conf:
+                best_conf = conf
+                best_name = name
+        return best_name
+
+    @staticmethod
     def _make_event(evt_type: EventType, t: float,
                     signal: PerceptionSignal,
-                    fast: bool, slow: bool) -> GameEvent:
+                    fast: bool, slow: bool,
+                    button_name: str = "") -> GameEvent:
         return GameEvent(
             type=evt_type,
             timestamp=t,
             perception=signal,
             trigger_fast=fast,
             trigger_slow=slow,
+            button_name=button_name,
         )

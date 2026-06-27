@@ -81,25 +81,67 @@ const voiceSlow     = $('voice-slow');
 const gameSelect    = $('game-select');
 
 // ── 游戏列表（硬编码）─────────────────────────────────────────────────
+// 4 个目标游戏写明确 game_id，其余保留展示名，id 用于 backend 词表查找
 const GAME_LIST = [
-  "街头霸王6","艾尔登法环","只狼：影逝二度","黑神话：悟空","原神",
-  "崩坏：星穹铁道","绝地求生","永劫无间","王者荣耀","英雄联盟",
-  "DOTA 2","反恐精英2","无畏契约","守望先锋2","Apex英雄",
-  "使命召唤：战区","暗黑破坏神4","怪物猎人：荒野","鬼泣5","战神：诸神黄昏",
-  "最终幻想16","塞尔达传说：王国之泪","超级马力欧：惊奇","空洞骑士：丝之歌",
-  "蔚蓝","死亡细胞","哈迪斯","哈迪斯2","以撒的结合","杀戮尖塔",
-  "博德之门3","赛博朋克2077","荒野大镖客2","侠盗猎车手5",
-  "生化危机4 重制版","寂静岭2 重制版","血源诅咒","黑暗之魂3",
-  "仁王2","对马岛之魂","最后生还者 Part II","地平线：西之绝境",
-  "星露谷物语","动物森友会","我的世界","泰拉瑞亚",
-  "文明6","全面战争：三国","火焰纹章：风花雪月","女神异闻录5 皇家版",
+  { id: "street_fighter_6",     label: "街头霸王6" },
+  { id: "black_myth_wukong",    label: "黑神话：悟空" },
+  { id: "new_super_mario_bros", label: "新超级马里奥兄弟" },
+  { id: "forza_horizon_5",      label: "极限竞速：地平线5" },
+  { id: "elden_ring",           label: "艾尔登法环" },
+  { id: "sekiro",               label: "只狼：影逝二度" },
+  { id: "genshin_impact",       label: "原神" },
+  { id: "honkai_starrail",      label: "崩坏：星穹铁道" },
+  { id: "pubg",                 label: "绝地求生" },
+  { id: "naraka",               label: "永劫无间" },
+  { id: "honor_of_kings",       label: "王者荣耀" },
+  { id: "league_of_legends",    label: "英雄联盟" },
+  { id: "dota2",                label: "DOTA 2" },
+  { id: "cs2",                  label: "反恐精英2" },
+  { id: "valorant",             label: "无畏契约" },
+  { id: "overwatch2",           label: "守望先锋2" },
+  { id: "apex_legends",         label: "Apex英雄" },
+  { id: "warzone",              label: "使命召唤：战区" },
+  { id: "diablo4",              label: "暗黑破坏神4" },
+  { id: "monster_hunter_wilds", label: "怪物猎人：荒野" },
+  { id: "dmc5",                 label: "鬼泣5" },
+  { id: "god_of_war_ragnarok",  label: "战神：诸神黄昏" },
+  { id: "ff16",                 label: "最终幻想16" },
+  { id: "zelda_totk",           label: "塞尔达传说：王国之泪" },
+  { id: "mario_wonder",         label: "超级马力欧：惊奇" },
+  { id: "silksong",             label: "空洞骑士：丝之歌" },
+  { id: "celeste",              label: "蔚蓝" },
+  { id: "dead_cells",           label: "死亡细胞" },
+  { id: "hades",                label: "哈迪斯" },
+  { id: "hades2",               label: "哈迪斯2" },
+  { id: "binding_of_isaac",     label: "以撒的结合" },
+  { id: "slay_the_spire",       label: "杀戮尖塔" },
+  { id: "bg3",                  label: "博德之门3" },
+  { id: "cyberpunk2077",        label: "赛博朋克2077" },
+  { id: "rdr2",                 label: "荒野大镖客2" },
+  { id: "gta5",                 label: "侠盗猎车手5" },
+  { id: "re4_remake",           label: "生化危机4 重制版" },
+  { id: "sh2_remake",           label: "寂静岭2 重制版" },
+  { id: "bloodborne",           label: "血源诅咒" },
+  { id: "dark_souls3",          label: "黑暗之魂3" },
+  { id: "nioh2",                label: "仁王2" },
+  { id: "ghost_of_tsushima",    label: "对马岛之魂" },
+  { id: "tlou2",                label: "最后生还者 Part II" },
+  { id: "horizon_forbidden_west",label: "地平线：西之绝境" },
+  { id: "stardew_valley",       label: "星露谷物语" },
+  { id: "animal_crossing",      label: "动物森友会" },
+  { id: "minecraft",            label: "我的世界" },
+  { id: "terraria",             label: "泰拉瑞亚" },
+  { id: "civ6",                 label: "文明6" },
+  { id: "total_war_3k",         label: "全面战争：三国" },
+  { id: "fire_emblem_3h",       label: "火焰纹章：风花雪月" },
+  { id: "persona5_royal",       label: "女神异闻录5 皇家版" },
 ];
 if (gameSelect) {
   gameSelect.innerHTML = '';
-  for (const name of GAME_LIST) {
+  for (const item of GAME_LIST) {
     const opt = document.createElement('option');
-    opt.value = name;
-    opt.textContent = name;
+    opt.value = item.id;
+    opt.textContent = item.label;
     gameSelect.appendChild(opt);
   }
 }
@@ -441,7 +483,13 @@ if (voiceSlow) {
 if (gameSelect) {
   gameSelect.addEventListener('change', () => {
     if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'set_game', game: gameSelect.value }));
+      const selectedId = gameSelect.value;
+      const selectedItem = GAME_LIST.find(g => g.id === selectedId);
+      ws.send(JSON.stringify({
+        type: 'set_game',
+        game_id: selectedId,
+        game: selectedItem ? selectedItem.label : selectedId,
+      }));
     }
   });
 }
@@ -577,6 +625,16 @@ function connectWebSocket() {
     console.log('WebSocket connected (build %s)', APP_BUILD);
     pcmSentCount = 0;
     ws.send(JSON.stringify({ type: 'register', role: clientMode }));
+    // 连接后立刻同步当前游戏选择到后端
+    if (gameSelect && gameSelect.value) {
+      const selectedId = gameSelect.value;
+      const selectedItem = GAME_LIST.find(g => g.id === selectedId);
+      ws.send(JSON.stringify({
+        type: 'set_game',
+        game_id: selectedId,
+        game: selectedItem ? selectedItem.label : selectedId,
+      }));
+    }
   };
 
   ws.onclose = (ev) => {

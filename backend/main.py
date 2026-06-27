@@ -255,7 +255,8 @@ class GameSession:
         self._pcm_chunk_count = 0
         self._video_frame_count = 0
         self._t0: float = 0.0
-        self.current_game: str = "街头霸王6"
+        self.current_game: str = ""
+        self.current_game_id: str = ""
 
         self.frame_buffer = FrameBuffer()
         self.nitrogen = create_nitrogen_client(cfg)
@@ -512,12 +513,29 @@ class GameSession:
         self.ctx_buffer.push_event(event.timestamp, event)
         seek_gen = self.asr_handler.seek_generation
 
+        # 诊断：模型原始输出（同时写 session.log 供离线分析）
+        p = event.perception
+        diag_raw = (
+            f"intent={p.primary_intent} conf={p.confidence:.2f} "
+            f"dir={p.move_direction} buttons={p.pressed_buttons or '[]'}"
+        )
+        self._tlog("模型原始", diag_raw)
+        logger.info("[模型原始] %s", diag_raw)
+
         if event.trigger_fast and self.cfg.fast_tts_enabled:
-            text = render_fast(event)
-            self.fast_hist.record(event.timestamp, text)
-            if seek_gen == self.asr_handler.seek_generation:
-                self._tlog("快提示", text)
-                self.tts_queue.push(text, Priority.FAST_HINT)
+            text = render_fast(event, self.current_game_id)
+            diag_trans = f"[{self.current_game_id}] {event.type.value} -> {text!r}"
+            self._tlog("翻译", diag_trans)
+            logger.info("[翻译] %s", diag_trans)
+            if not text:
+                # 空串：按键无 vocab 映射，跳过 TTS（不影响 trigger_slow 路径）
+                pass
+            else:
+                self.fast_hist.record(event.timestamp, text)
+                if seek_gen == self.asr_handler.seek_generation:
+                    self._tlog("快提示", text)
+                    logger.info("[快提示] %s", text)
+                    self.tts_queue.push(text, Priority.FAST_HINT)
 
         if event.trigger_slow:
             frame = self.frame_buffer.latest_frame
@@ -1285,9 +1303,12 @@ async def websocket_endpoint(ws: WebSocket):
 
                     elif mtype == "set_game" and _session:
                         game = data.get("game", "")
+                        game_id = data.get("game_id", "")
                         if game:
                             _session.current_game = game
-                            logger.info("Game changed to: %s", game)
+                        if game_id:
+                            _session.current_game_id = game_id
+                        logger.info("Game changed: %s (id=%s)", game, game_id)
 
                     elif mtype == "set_asr" and _session:
                         enabled = data.get("enabled", False)

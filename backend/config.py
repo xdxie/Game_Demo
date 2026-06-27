@@ -25,6 +25,8 @@ class Config:
     nitrogen_ssh_remote_port: int = 8000
     nitrogen_ssh_key: str = ""           # 可选私钥路径
     nitrogen_ssh_password: str = "qmkXaxUs99f4"      # SSH 密码
+    nitrogen_dump_path: str = ""         # 原始 /predict 落盘路径；空串=不落盘
+    nitrogen_dump_pretty: bool = False   # True=人类可读缩进 JSON，False=JSONL（默认）
     fast_tts_enabled: bool = True      # mock 模式下默认关闭，见 _apply_env
 
     # ── 快系统：动作过滤阈值（2号负责调优）────────────────────────────
@@ -36,7 +38,7 @@ class Config:
         "sudden_dodge":      3.0,
         "attack_window":     4.0,
         "sustained_danger":  8.0,
-        "movement_shift":    3.0,
+        "movement_shift":   15.0,   # 走位提示不宜太频繁，15s 冷却
         "pattern_completed": 8.0,
     })
 
@@ -148,6 +150,11 @@ def _apply_env(cfg: Config) -> None:
         cfg.nitrogen_ssh_key = v.strip()
     if v := os.getenv("NITROGEN_SSH_PASSWORD"):
         cfg.nitrogen_ssh_password = v
+    if v := os.getenv("NITROGEN_DUMP_PATH"):
+        cfg.nitrogen_dump_path = v.strip()
+    pretty = _env_bool("NITROGEN_DUMP_PRETTY")
+    if pretty is not None:
+        cfg.nitrogen_dump_pretty = pretty
 
     if v := os.getenv("VLM_API_KEY"):
         cfg.vlm_api_key = v.strip()
