@@ -7,6 +7,7 @@
 """
 
 from __future__ import annotations
+import collections
 import heapq
 import logging
 import threading
@@ -76,6 +77,7 @@ class TTSQueue:
 
         self._heap: list[TTSItem] = []
         self._lock = threading.Lock()
+        self._fast_recent: collections.deque[str] = collections.deque(maxlen=3)  # 快系统最近3条
 
         self._is_speaking   = False   # 占用播报槽（合成中或播放中）
         self._playback_active = False  # MP3 已下发、正在播放（barge-in 仅此时生效）
@@ -129,6 +131,10 @@ class TTSQueue:
         with self._lock:
             # 快系统新内容入队时，清掉队列中尚未播报的旧快系统条目（只保最新）
             if priority in (Priority.FAST_SPELL, Priority.FAST_HINT):
+                # 去重：前3轮出现过的文本直接跳过
+                if text in self._fast_recent:
+                    logger.debug("TTS fast dedup skip (recent 3): %s", text[:20])
+                    return
                 dropped = [i for i in self._heap
                            if i.priority in (Priority.FAST_SPELL, Priority.FAST_HINT)]
                 if dropped:
@@ -236,6 +242,9 @@ class TTSQueue:
 
         channel = _priority_to_channel(item.priority)
         use_fast_voice = item.priority in (Priority.FAST_HINT, Priority.FAST_SPELL)
+        if use_fast_voice:
+            with self._lock:
+                self._fast_recent.append(item.text)
         speaker = (self._tts._volc_speaker_fast
                    if use_fast_voice
                    else self._tts._volc_speaker_slow)
