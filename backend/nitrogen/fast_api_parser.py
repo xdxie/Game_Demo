@@ -16,17 +16,23 @@ _BTN_THRESHOLD = 0.5
 
 
 def parse_predict_response(data: dict, btn_threshold: float = _BTN_THRESHOLD) -> PerceptionSignal:
-    """解析 POST /predict 返回的 JSON。"""
+    """解析 POST /predict 返回的 JSON。
+
+    兼容两种格式：
+    - 旧格式：action_summary.{left_stick_mean, right_stick_mean, trigger_means, buttons_avg_pressed}
+    - 新格式（NitroGen 实际返回）：顶层 left_stick / right_stick / buttons_held
+    """
     summary = data.get("action_summary") or {}
-    left = summary.get("left_stick_mean") or [0.0, 0.0]
-    right = summary.get("right_stick_mean") or [0.0, 0.0]
+    left = data.get("left_stick") or summary.get("left_stick_mean") or [0.0, 0.0]
+    right = data.get("right_stick") or summary.get("right_stick_mean") or [0.0, 0.0]
+    pressed = list(data.get("buttons_held") or summary.get("buttons_avg_pressed") or [])
     triggers = summary.get("trigger_means") or {}
-    pressed = list(summary.get("buttons_avg_pressed") or [])
 
     lx = float(left[0]) if len(left) > 0 else 0.0
     ly = float(left[1]) if len(left) > 1 else 0.0
-    lt = float(triggers.get("LEFT_TRIGGER", 0.0))
-    rt = float(triggers.get("RIGHT_TRIGGER", 0.0))
+    # 扳机优先读 trigger_means（旧格式），否则从 buttons_held 推断
+    lt = float(triggers.get("LEFT_TRIGGER", 1.0 if "LEFT_TRIGGER" in pressed else 0.0))
+    rt = float(triggers.get("RIGHT_TRIGGER", 1.0 if "RIGHT_TRIGGER" in pressed else 0.0))
 
     stick_mag = (lx * lx + ly * ly) ** 0.5
     attack_score = max(rt, _score_from_pressed(pressed, ATTACK_BUTTONS))
@@ -46,7 +52,9 @@ def parse_predict_response(data: dict, btn_threshold: float = _BTN_THRESHOLD) ->
     direction = _infer_direction(lx, ly)
     is_change = bool(data.get("is_change"))
     change_info = data.get("change_info") or {}
-    change_distance = float(change_info.get("distance") or 0.0)
+    change_distance = float(
+        change_info.get("distance") or change_info.get("stick_distance") or 0.0
+    )
 
     hint_text = _build_hint_text(pressed, lx, ly, is_change, change_distance)
 
