@@ -1289,93 +1289,70 @@ class ActionFilter:
 
 
 
-        # RT + LT 双修饰键（精魄/化身）：同帧或跨帧窗内
-        if rt_active and "LEFT_TRIGGER" in new_btns:
-            return self._rt_lt_combo_event(EventType.BUTTON_PRESS, t, signal)
-        if lt_active and "RIGHT_TRIGGER" in new_btns:
-            return self._rt_lt_combo_event(EventType.BUTTON_PRESS, t, signal)
+        # 以下 combo 检测（RT+LT、RT+face、LT+dpad）仅对黑猴有意义，其他游戏跳过
+        if self._game_id == WUKONG_GAME_ID:
 
+            # RT + LT 双修饰键（精魄/化身）：同帧或跨帧窗内
+            if rt_active and "LEFT_TRIGGER" in new_btns:
+                return self._rt_lt_combo_event(EventType.BUTTON_PRESS, t, signal)
+            if lt_active and "RIGHT_TRIGGER" in new_btns:
+                return self._rt_lt_combo_event(EventType.BUTTON_PRESS, t, signal)
 
+            # RT + 面部键：RT→face 或 face→RT，同帧/0.8s 跨帧
 
-        # RT + 面部键：RT→face 或 face→RT，同帧/0.8s 跨帧
+            if rt_active:
 
-        if rt_active:
+                new_face = new_btns & FACE_KEYS
 
-            new_face = new_btns & FACE_KEYS
+                if new_face:
 
-            if new_face:
+                    if defer_rt_face_combo and "RIGHT_TRIGGER" in new_btns:
 
-                if defer_rt_face_combo and "RIGHT_TRIGGER" in new_btns:
+                        return None
 
-                    return None
+                    face = (
 
-                face = (
+                        self._pick_strongest_button(signal.pressed_buttons, new_face)
 
-                    self._pick_strongest_button(signal.pressed_buttons, new_face)
-
-                    or next(iter(new_face))
-
-                )
-
-                return self._spell_combo_event(
-
-                    EventType.BUTTON_PRESS, t, signal, "RIGHT_TRIGGER", face,
-
-                )
-
-            if "RIGHT_TRIGGER" in new_btns:
-
-                recent_face = self._recent_face_keys(t, cur_btns)
-
-                if recent_face:
-
-                    face = self._pick_best_recent_face(
-
-                        t, signal, cur_btns, recent_face,
+                        or next(iter(new_face))
 
                     )
 
-                    if face:
+                    return self._spell_combo_event(
 
-                        return self._spell_combo_event(
+                        EventType.BUTTON_PRESS, t, signal, "RIGHT_TRIGGER", face,
 
-                            EventType.BUTTON_PRESS, t, signal, "RIGHT_TRIGGER", face,
+                    )
+
+                if "RIGHT_TRIGGER" in new_btns:
+
+                    recent_face = self._recent_face_keys(t, cur_btns)
+
+                    if recent_face:
+
+                        face = self._pick_best_recent_face(
+
+                            t, signal, cur_btns, recent_face,
 
                         )
 
+                        if face:
 
+                            return self._spell_combo_event(
 
-        dpad_new = new_btns & DPAD_KEYS
+                                EventType.BUTTON_PRESS, t, signal, "RIGHT_TRIGGER", face,
 
-        if lt_active and dpad_new:
+                            )
 
-            dpad = (
+            dpad_new = new_btns & DPAD_KEYS
 
-                self._pick_strongest_button(signal.pressed_buttons, dpad_new)
-
-                or next(iter(dpad_new))
-
-            )
-
-            return self._spell_combo_event(
-
-                EventType.BUTTON_PRESS, t, signal, "LEFT_TRIGGER", dpad,
-
-            )
-
-
-
-        if "LEFT_TRIGGER" in new_btns:
-
-            recent_dpad = self._recent_dpad_keys(t, cur_btns)
-
-            if recent_dpad:
+            if lt_active and dpad_new:
 
                 dpad = (
 
-                    self._pick_strongest_button(signal.pressed_buttons, recent_dpad)
+                    self._pick_strongest_button(signal.pressed_buttons, dpad_new)
 
-                    or next(iter(recent_dpad))
+                    or next(iter(dpad_new))
 
                 )
 
@@ -1384,6 +1361,26 @@ class ActionFilter:
                     EventType.BUTTON_PRESS, t, signal, "LEFT_TRIGGER", dpad,
 
                 )
+
+            if "LEFT_TRIGGER" in new_btns:
+
+                recent_dpad = self._recent_dpad_keys(t, cur_btns)
+
+                if recent_dpad:
+
+                    dpad = (
+
+                        self._pick_strongest_button(signal.pressed_buttons, recent_dpad)
+
+                        or next(iter(recent_dpad))
+
+                    )
+
+                    return self._spell_combo_event(
+
+                        EventType.BUTTON_PRESS, t, signal, "LEFT_TRIGGER", dpad,
+
+                    )
 
 
 

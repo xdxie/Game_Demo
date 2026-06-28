@@ -108,52 +108,64 @@ GENERAL = GameVocab(
 )
 
 
-# ── MARIO（新超级马里奥兄弟）────────────────────────────────────────────
-# Xbox 按键对照（NitroGen 方位名 → Xbox键 → 功能，Wii 版为主）：
-#   SOUTH=A 跳跃  EAST=B 跳跃(备用, DS)  WEST=X 奔跑/火球/抱物  NORTH=Y 旋转跳/晃手柄
-#   LT=LEFT_TRIGGER 左倾斜  RT=RIGHT_TRIGGER 右倾斜
-#   LB=LEFT_SHOULDER 进泡泡(多人)  LS/RS 无  START/BACK 系统键不播报
+# ── MARIO（新超级马里奥兄弟 / 超级马力欧：惊奇）────────────────────────────
+# Xbox 按键对照（Switch→Xbox 映射，Nintendo B=Xbox A，Nintendo A=Xbox B）：
+#   SOUTH=A 跳跃（Nintendo B）
+#   EAST=B 跳跃备用（Nintendo A，部分作品功能不同）
+#   WEST=X 奔跑/加速/使用道具（Nintendo Y）
+#   NORTH=Y 表情/旋转跳（Nintendo X）
+#   LEFT_TRIGGER=LT 蹲下/下砸  RIGHT_TRIGGER=RT 旋转跳/奔跑备用
+#   LEFT_SHOULDER=LB 多人泡泡，单人不播报
 MARIO = GameVocab(
     game_id="new_super_mario_bros",
     suppress_directional_fast=True,
     templates={
         EventType.SUDDEN_DODGE: (
-            lambda s: "顶一下！",
-            lambda s: "踩一下！",
+            lambda s: f"往{DIRECTION_ZH[s.move_direction]}跳！",
+            lambda s: "快跳开！",
         ),
         EventType.ATTACK_WINDOW: (
             lambda s: "踩它！",
-            lambda s: "顶一下！",
+            lambda s: "跳上去踩！",
         ),
         EventType.SUSTAINED_DANGER: (
-            lambda s: f"前面有怪，往{DIRECTION_ZH[s.move_direction]}跳",
-            lambda s: "小心怪，跳开",
+            lambda s: f"前有危险，往{DIRECTION_ZH[s.move_direction]}跳",
+            lambda s: "小心，跳开！",
         ),
         EventType.MOVEMENT_SHIFT: (
             lambda s: f"往{DIRECTION_ZH[s.move_direction]}跑",
-            lambda s: "换边跑",
+            lambda s: "换边跑！",
         ),
     },
     button_variants={
-        "SOUTH": ["顶一下！", "踩一下！", "踩它！", "顶一下！"],
-        "EAST":  ["顶一下！", "踩一下！", "踩它！", "顶一下！"],
+        "SOUTH": ["跳！", "踩它！", "跳上去！"],
+        "EAST":  ["跳！", "踩一下！"],
     },
     button_to_text={
-        # ── 核心三键（SOUTH/EAST 由 button_variants 轮播）────────────
-        "SOUTH":         "",
-        "EAST":          "",
-        "WEST":          "出招！",      # X = 奔跑/加速/火球/抱物
-        "NORTH":         "旋转跳跃！",    # Y = 晃手柄 Spin/旋转跳
-        # ── 倾斜（Wii 可选）──────────────────────────────────────────
-        "LEFT_TRIGGER":  "左倾斜！",    # LT
-        "RIGHT_TRIGGER": "右倾斜！",    # RT
-        # ── 多人可选 ─────────────────────────────────────────────────
-        "LEFT_SHOULDER": "",            # LB = 进泡泡，单人模式不播报
-        # ── 无功能 / 系统键 ───────────────────────────────────────────
-        "LEFT_THUMB":    "",            # LS 无
-        "RIGHT_THUMB":   "",            # RS 无
-        "START":         "",            # Menu
-        "BACK":          "",            # View
+        "SOUTH":          "",            # A = 跳跃（由 button_variants 轮播）
+        "EAST":           "",            # B = 跳跃备用（由 button_variants 轮播）
+        "WEST":           "冲刺！",      # X = 奔跑/加速/使用道具
+        "NORTH":          "旋转跳！",    # Y = 旋转跳/表情
+        "RIGHT_TRIGGER":  "旋转跳！",    # RT = 旋转跳
+        "LEFT_TRIGGER":   "",            # LT = 蹲下/下砸，不主动提示
+        "LEFT_SHOULDER":  "",            # LB = 进泡泡（多人），单人不播报
+        "RIGHT_SHOULDER": "",
+        "LEFT_THUMB":     "",
+        "RIGHT_THUMB":    "",
+        "START":          "",
+        "BACK":           "",
+    },
+    variant_texts={
+        EventType.ATTACK_WINDOW: [
+            "踩它！",
+            "跳上去！",
+            "顶一下！",
+        ],
+        EventType.SUSTAINED_DANGER: [
+            "小心，跳开！",
+            "前有危险！",
+            "避开！",
+        ],
     },
 )
 
@@ -237,6 +249,17 @@ WUKONG = GameVocab(
 
 
 # ── FORZA（极限竞速：地平线 5）──────────────────────────────────────────
+# Xbox 按键对照：
+#   RT=RIGHT_TRIGGER 油门（几乎全程按住，不播报）
+#   LT=LEFT_TRIGGER 刹车
+#   SOUTH=A 手刹（漂移用）
+#   EAST=B 升挡（手动档）
+#   WEST=X 降挡（手动档）
+#   NORTH=Y 倒带（纠错，不播报）
+#   LEFT_SHOULDER=LB 离合器（手动档）/ 换挡降
+#   RIGHT_SHOULDER=RB 切换摄像头（不播报）
+#   RIGHT_THUMB=RS按下 喇叭
+#   DPAD_UP 拍照模式（不播报）
 FORZA = GameVocab(
     game_id="forza_horizon_5",
     suppress_directional_fast=True,
@@ -251,24 +274,58 @@ FORZA = GameVocab(
         ),
         EventType.SUSTAINED_DANGER: (
             lambda s: f"弯道，靠{DIRECTION_ZH[s.move_direction]}走",
-            lambda s: "减速过弯",
+            lambda s: "注意弯道，减速！",
         ),
         EventType.MOVEMENT_SHIFT: (
             lambda s: f"向{DIRECTION_ZH[s.move_direction]}转向",
-            lambda s: "切线路",
+            lambda s: "切线路！",
         ),
     },
     button_to_text={
-        "RIGHT_TRIGGER":  "踩油门！",
-        "LEFT_TRIGGER":   "刹车！",
-        "RIGHT_SHOULDER": "换挡升！",
-        "LEFT_SHOULDER":  "换挡降！",
-        "SOUTH":          "手刹！",    # A = 手刹
+        "LEFT_TRIGGER":   "刹车！",      # LT = 刹车
+        "SOUTH":          "手刹！",      # A = 手刹/漂移
+        "EAST":           "升挡！",      # B = 升挡（手动档）
+        "WEST":           "降挡！",      # X = 降挡（手动档）
+        "LEFT_SHOULDER":  "换挡降！",    # LB = 离合/换挡降
+        "RIGHT_THUMB":    "按喇叭！",    # RS按下 = 喇叭
+        # ── 以下不播报 ────────────────────────────────────────────────
+        "RIGHT_TRIGGER":  "",            # RT = 油门，全程按住，不播报
+        "NORTH":          "",            # Y = 倒带，纠错操作不播报
+        "RIGHT_SHOULDER": "",            # RB = 切换摄像头，不播报
+        "LEFT_THUMB":     "",
+        "DPAD_UP":        "",
+        "DPAD_DOWN":      "",
+        "DPAD_LEFT":      "",
+        "DPAD_RIGHT":     "",
+        "START":          "",
+        "BACK":           "",
+    },
+    button_variants={
+        "SOUTH": ["手刹！", "漂移！"],
+        "LEFT_TRIGGER": ["刹车！", "减速！"],
+    },
+    variant_texts={
+        EventType.SUSTAINED_DANGER: [
+            "注意弯道！",
+            "减速过弯！",
+            "收油了！",
+        ],
+        EventType.ATTACK_WINDOW: [
+            "踩油门！",
+            "加速超车！",
+            "全力冲！",
+        ],
     },
 )
 
 
-# ── STREET_FIGHTER（街头霸王 6）──────────────────────────────────────────
+# ── STREET_FIGHTER（街头霸王 6，经典模式六键布局）──────────────────────────
+# Xbox 按键对照（经典模式默认）：
+#   WEST=X 轻拳(LP)  NORTH=Y 中拳(MP)  RIGHT_SHOULDER=RB 重拳(HP)
+#   SOUTH=A 轻脚(LK)  EAST=B 中脚(MK)  RIGHT_TRIGGER=RT 重脚(HK)
+#   LB/LT 经典模式默认未分配，现代模式 LB=斗气冲击 LT=投技 RB=斗气反击
+#   斗气冲击(RB+RT同时) / 斗气反击(Y+B同时) — NitroGen 组合键识别有限，不做 combo
+#   格挡靠后拨摇杆实现，无专用按键
 STREET_FIGHTER = GameVocab(
     game_id="street_fighter_6",
     suppress_directional_fast=True,
@@ -278,12 +335,12 @@ STREET_FIGHTER = GameVocab(
             lambda s: "挡住！",
         ),
         EventType.ATTACK_WINDOW: (
-            lambda s: "压上去打！",
+            lambda s: "压上去！",
             lambda s: "搓连段！",
         ),
         EventType.SUSTAINED_DANGER: (
-            lambda s: f"拉开点，往{DIRECTION_ZH[s.move_direction]}挪",
-            lambda s: "稳住",
+            lambda s: f"拉开距离，往{DIRECTION_ZH[s.move_direction]}挪",
+            lambda s: "稳住！",
         ),
         EventType.MOVEMENT_SHIFT: (
             lambda s: f"往{DIRECTION_ZH[s.move_direction]}挪",
@@ -291,14 +348,38 @@ STREET_FIGHTER = GameVocab(
         ),
     },
     button_to_text={
-        "SOUTH":          "踢一下！",    # A 轻脚
-        "EAST":           "踹他！",      # B 中脚
-        "WEST":           "戳一下！",    # X 轻拳
-        "NORTH":          "给一拳！",      # Y 中拳
-        "LEFT_SHOULDER":  "斗气格挡！",    # LB 斗气格挡
-        "RIGHT_SHOULDER": "重拳砸！",    # RB 重拳
-        "LEFT_TRIGGER":   "斗气冲击！",      # LT 防御/投技
-        "RIGHT_TRIGGER":  "重脚扫！",    # RT 重脚
+        # ── 六键经典布局 ──────────────────────────────────────────────
+        "WEST":           "轻拳！",      # X = 轻拳 LP
+        "NORTH":          "中拳！",      # Y = 中拳 MP
+        "RIGHT_SHOULDER": "重拳！",      # RB = 重拳 HP
+        "SOUTH":          "轻脚！",      # A = 轻脚 LK
+        "EAST":           "中脚！",      # B = 中脚 MK
+        "RIGHT_TRIGGER":  "重脚！",      # RT = 重脚 HK
+        # ── 经典模式 LB/LT 默认空，现代模式映射以下功能 ──────────────
+        "LEFT_SHOULDER":  "斗气冲击！",  # LB = 斗气冲击（现代模式）
+        "LEFT_TRIGGER":   "投技！",      # LT = 投技（现代模式）
+        # ── 系统键不播报 ──────────────────────────────────────────────
+        "LEFT_THUMB":     "",
+        "RIGHT_THUMB":    "",
+        "START":          "",
+        "BACK":           "",
+    },
+    button_variants={
+        "WEST":  ["轻拳！", "出拳！"],
+        "SOUTH": ["轻脚！", "踢他！"],
+        "EAST":  ["中脚！", "踹他！"],
+    },
+    variant_texts={
+        EventType.ATTACK_WINDOW: [
+            "压上去！",
+            "搓连段！",
+            "反击！",
+        ],
+        EventType.SUSTAINED_DANGER: [
+            "稳住！",
+            "拉开距离！",
+            "别贪招！",
+        ],
     },
 )
 

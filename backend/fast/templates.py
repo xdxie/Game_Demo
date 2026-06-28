@@ -118,10 +118,6 @@ def render_fast(event: GameEvent, game_id: str | None = None) -> str:
 
             text = vocab.lookup_combo(combo_btns)
 
-            if not text:
-
-                text = get_vocab("black_myth_wukong").lookup_combo(combo_btns)
-
             if text:
 
                 return text
