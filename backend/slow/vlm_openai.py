@@ -5,17 +5,13 @@ import asyncio
 import base64
 import concurrent.futures
 import io
-import json as _json
 import logging
 import time
 import traceback
-from typing import Any, AsyncGenerator
+from typing import Any
 
-import httpx
 import requests as req
 from PIL import Image
-
-_SENTENCE_ENDS = frozenset('。！？\n')
 
 from backend.config import Config, get_config
 from backend.fast.event import GameEvent
@@ -161,79 +157,6 @@ async def call_vlm_openai(
         raise
 
     return result
-
-
-async def call_vlm_openai_streaming(
-    event: GameEvent,
-    frame: Image.Image,
-    ctx_summary: str,
-    last_fast_text: str,
-    actions_timeline_text: str,
-    user_question: str = "",
-    conversation_history: list[dict] | None = None,
-    slow_spoken: list[str] | None = None,
-    cfg: Config | None = None,
-    include_nitrogen: bool = False,
-) -> AsyncGenerator[str, None]:
-    """流式调用 VLM，按句子边界 yield 文本段，降低首包时延。"""
-    cfg = cfg or get_config()
-    api_key = (cfg.vlm_api_key or "").strip()
-    if not api_key:
-        raise RuntimeError("VLM_API_KEY 未配置")
-
-    base = (cfg.vlm_api_base or "https://yunwu.ai/v1").rstrip("/")
-    url = f"{base}/chat/completions"
-
-    user_text = build_user_text(
-        event, ctx_summary, last_fast_text, actions_timeline_text, user_question,
-        include_nitrogen=include_nitrogen, slow_spoken=slow_spoken,
-    )
-    messages = _openai_messages(user_text, frame, conversation_history)
-    payload = {
-        "model": cfg.vlm_model,
-        "max_tokens": cfg.vlm_max_tokens,
-        "stream": True,
-        "messages": [
-            {"role": "system", "content": system_prompt(include_nitrogen)},
-            *messages,
-        ],
-    }
-    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-
-    logger.info("VLM openai [%s] streaming → %s", event.type.value, url)
-    t0 = time.time()
-    buf = ""
-
-    async with httpx.AsyncClient(timeout=cfg.vlm_api_timeout_sec) as client:
-        async with client.stream("POST", url, json=payload, headers=headers) as resp:
-            if resp.status_code >= 400:
-                body = await resp.aread()
-                raise RuntimeError(f"VLM API {resp.status_code}: {body[:200]}")
-            async for line in resp.aiter_lines():
-                if not line.startswith("data: "):
-                    continue
-                data = line[6:]
-                if data.strip() == "[DONE]":
-                    break
-                try:
-                    token = _json.loads(data)["choices"][0]["delta"].get("content") or ""
-                except Exception:
-                    continue
-                buf += token
-                # 只在句末符后面已有更多内容时才切句（避免末尾提前切断）
-                while len(buf) > 1:
-                    idx = next((i for i, c in enumerate(buf[:-1]) if c in _SENTENCE_ENDS), -1)
-                    if idx < 0:
-                        break
-                    sentence = buf[:idx + 1].strip()
-                    buf = buf[idx + 1:]
-                    if sentence:
-                        yield sentence
-
-    if buf.strip():
-        yield buf.strip()
-
-    logger.info("VLM openai [%s] streaming done %.1fs", event.type.value, time.time() - t0)
 
 
 def selftest(cfg: Config | None = None) -> bool:
