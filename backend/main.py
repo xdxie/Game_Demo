@@ -263,6 +263,7 @@ class GameSession:
         self.current_game: str = "街头霸王6"
         self.current_game_id: str = "street_fighter_6"
         self._first_frame_greeted = False
+        self._greeting_delivered = False  # 慢系统首句播报前，快系统不输出
 
         self.frame_buffer = FrameBuffer()
         self.nitrogen = create_nitrogen_client(cfg)
@@ -523,7 +524,7 @@ class GameSession:
         self.ctx_buffer.push_event(event.timestamp, event)
         seek_gen = self.asr_handler.seek_generation
 
-        if event.trigger_fast and self.cfg.fast_tts_enabled:
+        if event.trigger_fast and self.cfg.fast_tts_enabled and self._greeting_delivered:
             text = render_fast(event, self.current_game_id)
             self.fast_hist.record(event.timestamp, text)
             if seek_gen == self.asr_handler.seek_generation:
@@ -757,6 +758,8 @@ class GameSession:
 
     def _on_tts_subtitle(self, text: str, channel: str, utterance_id: int):
         """字幕先出（合成中），此时不 mute 麦克风。"""
+        if channel == "slow" and not self._greeting_delivered:
+            self._greeting_delivered = True
         tag = {"user_answer": "教练答", "fast": "快播报", "slow": "慢播报"}.get(channel, channel)
         self._tlog(tag, text)
         self._schedule(self._broadcast({
