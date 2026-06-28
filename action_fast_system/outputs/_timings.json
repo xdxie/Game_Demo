@@ -1,0 +1,33 @@
+{
+  "frames": [
+    {
+      "file": "frame_0039.jpg",
+      "elapsed_sec": 0.36815040000146837,
+      "frame_idx": 0,
+      "is_change": false
+    },
+    {
+      "file": "frame_0040.jpg",
+      "elapsed_sec": 0.367978199999925,
+      "frame_idx": 1,
+      "is_change": false
+    },
+    {
+      "file": "frame_0041.jpg",
+      "elapsed_sec": 0.3294123000014224,
+      "frame_idx": 2,
+      "is_change": false
+    },
+    {
+      "file": "frame_0042.jpg",
+      "elapsed_sec": 0.3423019000001659,
+      "frame_idx": 3,
+      "is_change": false
+    }
+  ],
+  "total_sec": 1.4078428000029817,
+  "mean_sec": 0.3519607000007454,
+  "median_sec": 0.35514005000004545,
+  "min_sec": 0.3294123000014224,
+  "max_sec": 0.36815040000146837
+}

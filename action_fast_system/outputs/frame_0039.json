@@ -1,0 +1,38 @@
+{
+  "frame_idx": 0,
+  "session_idx": 2,
+  "auto_reset": false,
+  "action_summary": {
+    "left_stick_mean": [
+      0.2561,
+      0.0371
+    ],
+    "right_stick_mean": [
+      0.0003,
+      -0.0006
+    ],
+    "left_stick_std": [
+      0.3293,
+      0.0481
+    ],
+    "right_stick_std": [
+      0.0017,
+      0.0018
+    ],
+    "buttons_avg_pressed": [
+      "RIGHT_TRIGGER(1.00)"
+    ],
+    "trigger_means": {
+      "LEFT_TRIGGER": 0.0,
+      "RIGHT_TRIGGER": 1.0
+    },
+    "chunk_length": 18
+  },
+  "is_change": false,
+  "change_info": {
+    "mode": "cold_start",
+    "distance": 0.0,
+    "threshold": 0.7,
+    "history_size_used": 0
+  }
+}

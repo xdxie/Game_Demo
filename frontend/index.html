@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>艺起玩</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div id="app">
+
+    <header id="header">
+      <div class="header-left">
+        <span class="title">艺起玩</span>
+      </div>
+      <div id="status-bar">
+        <label class="header-select">
+          游戏：<select id="game-select"></select>
+        </label>
+        <label class="header-select">
+          教练音色：<select id="voice-fast">
+            <option value="zh_male_m191_uranus_bigtts">男音1</option>
+            <option value="zh_male_liufei_uranus_bigtts">男音2</option>
+            <option value="zh_female_cancan_uranus_bigtts">女音1</option>
+            <option value="zh_female_vv_uranus_bigtts">女音2</option>
+          </select>
+        </label>
+        <label class="header-select">
+          搭档音色：<select id="voice-slow">
+            <option value="zh_female_cancan_uranus_bigtts">女音1</option>
+            <option value="zh_female_vv_uranus_bigtts">女音2</option>
+            <option value="zh_male_m191_uranus_bigtts">男音1</option>
+            <option value="zh_male_liufei_uranus_bigtts">男音2</option>
+          </select>
+        </label>
+        <span class="dot" id="dot-nitrogen" title="NitroGen 推理状态">NitroGen</span>
+        <span class="dot" id="dot-vlm"      title="VLM 处理状态">VLM</span>
+        <button type="button" id="btn-mute" class="btn-mute muted" title="点击开启麦克风收音">🔇 静音</button>
+      </div>
+    </header>
+
+    <main id="main">
+
+      <section id="video-section">
+        <div id="video-upload-area" class="upload-area">
+          <p>选择本地游戏视频文件</p>
+          <input type="file" id="file-input" accept="video/*" />
+          <label for="file-input" class="btn">选择视频</label>
+          <p class="hint">支持 MP4、AVI、MKV 等格式</p>
+        </div>
+
+        <div id="video-player-area" style="display:none">
+          <video id="video-player" controls playsinline></video>
+          <label class="video-audio-toggle">
+            <input type="checkbox" id="chk-video-audio" />
+            开启游戏原声（关闭可改善麦克风收音）
+          </label>
+          <div id="video-controls">
+            <button id="btn-start-analysis" class="btn btn-primary">▶ 开始分析</button>
+            <button id="btn-stop-analysis"  class="btn btn-danger"   style="display:none">■ 停止</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="chat-section">
+        <div id="chat-fast-panel" class="chat-panel">
+          <div class="chat-panel-header fast">
+            <span>🎮 游戏教练</span>
+          </div>
+          <div id="chat-fast" class="chat-messages-area">
+            <div class="chat-placeholder">游戏教练的动作提示会显示在这里</div>
+          </div>
+        </div>
+        <div id="chat-slow-panel" class="chat-panel">
+          <div class="chat-panel-header slow">
+            <span>💬 在线陪玩</span>
+            <button id="btn-clear-chat" class="btn-small">清空</button>
+          </div>
+          <div id="chat-slow" class="chat-messages-area">
+            <div class="chat-placeholder">在线陪玩的回复和你的提问会显示在这里</div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+  </div>
+
+  <!-- Fix 11：隐藏的帧捕获 canvas，256×256 与 NitroGen 输入尺寸一致 -->
+  <canvas id="capture-canvas" width="256" height="256" style="display:none"></canvas>
+
+  <script src="/static/app.js?v=20250627-fix-label"></script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+{
+  "game_type": "platformer",
+  "game_name": "New Super Mario Bros.",
+  "query": "刚才跳那个问号砖，我是不是起跳早了，差点够不着？",
+  "image_paths": [
+    "nsmb_vlm_queries/query_01_screenshot_00m16s.jpg"
+  ],
+  "clip_start": 12.0,
+  "clip_end": 16.0,
+  "trigger_reason": "manual_review",
+  "action_summary": "JUMPx1 -> RIGHTx3 -> LEFTx1"
+}

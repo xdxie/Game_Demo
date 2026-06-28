@@ -1,0 +1,12 @@
+{
+  "game_type": "platformer",
+  "game_name": "New Super Mario Bros.",
+  "query": "刚才着急冲下去吃金币，被怪物碰到，是不是应该等一下怪物过去？",
+  "image_paths": [
+    "nsmb_vlm_queries/screenshot_00m59s.jpg"
+  ],
+  "clip_start": 56.0,
+  "clip_end": 59.0,
+  "trigger_reason": "manual_review",
+  "action_summary": "RIGHTx1 -> LEFTx1 -> RIGHTx1 -> JUMPx1"
+}

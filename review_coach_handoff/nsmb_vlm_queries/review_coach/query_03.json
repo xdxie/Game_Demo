@@ -1,0 +1,12 @@
+{
+  "game_type": "platformer",
+  "game_name": "New Super Mario Bros.",
+  "query": "刚才头顶冒出蘑菇，我是不是该停一下吃了再走？",
+  "image_paths": [
+    "nsmb_vlm_queries/query_03_screenshot_00m52s.jpg"
+  ],
+  "clip_start": 50.0,
+  "clip_end": 52.0,
+  "trigger_reason": "manual_review",
+  "action_summary": "UPx1 -> RIGHTx1"
+}
