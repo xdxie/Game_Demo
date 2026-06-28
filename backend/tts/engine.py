@@ -61,7 +61,7 @@ class TTSEngine:
 
         self._stop_flag = threading.Event()
         self._completion_timer: Optional[threading.Timer] = None
-        self._cache: dict[str, bytes] = {}
+        self._cache: dict[tuple[str, str], bytes] = {}
 
         self.on_audio_data: Optional[Callable[[bytes], None]] = None
 
@@ -78,7 +78,7 @@ class TTSEngine:
                     asyncio.run(self._async_preload(text))
                     continue
                 if data:
-                    self._cache[text] = data
+                    self._cache[(text, self._volc_speaker_slow)] = data
             except Exception as e:
                 logger.warning("Preload failed for '%s': %s", text, e)
         logger.info("TTS preloaded %d phrases", len(self._cache))
@@ -86,7 +86,7 @@ class TTSEngine:
     async def _async_preload(self, text: str):
         try:
             data = await self._synthesize_full(text)
-            self._cache[text] = data
+            self._cache[(text, self._volc_speaker_slow)] = data
         except Exception as e:
             logger.warning("Preload failed for '%s': %s", text, e)
 
@@ -136,8 +136,9 @@ class TTSEngine:
             if is_cancelled and is_cancelled():
                 return
 
-            if text in self._cache:
-                audio_data = self._cache[text]
+            cache_key = (text, speaker or self._volc_speaker_slow)
+            if cache_key in self._cache:
+                audio_data = self._cache[cache_key]
                 if self.on_audio_data:
                     self.on_audio_data(audio_data)
             elif self.engine == "volcengine":
