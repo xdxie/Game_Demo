@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 import os
 import traceback
+from typing import AsyncGenerator
 
 from PIL import Image
 
@@ -11,7 +12,7 @@ from backend.config import Config, get_config
 from backend.fast.event import GameEvent
 from backend.slow import vlm_client
 from backend.slow.vlm_mock import call_vlm_mock
-from backend.slow.vlm_openai import call_vlm_openai
+from backend.slow.vlm_openai import call_vlm_openai, call_vlm_openai_streaming
 
 logger = logging.getLogger(__name__)
 
@@ -124,3 +125,41 @@ async def call_vlm(
         max_tokens=max_tokens or cfg.vlm_max_tokens,
         include_nitrogen=nitrogen,
     )
+
+
+async def call_vlm_streaming(
+    event: GameEvent,
+    frame: "Image.Image",
+    ctx_summary: str,
+    last_fast_text: str,
+    actions_timeline_text: str = "",
+    user_question: str = "",
+    conversation_history: list[dict] | None = None,
+    slow_spoken: list[str] | None = None,
+    cfg: Config | None = None,
+    include_nitrogen: bool | None = None,
+) -> AsyncGenerator[str, None]:
+    """流式路由：openai 走 SSE 逐句 yield，其余 fallback 整句 yield。"""
+    cfg = cfg or get_config()
+    provider = vlm_provider(cfg)
+    nitrogen = include_nitrogen if include_nitrogen is not None else cfg.vlm_nitrogen_input
+
+    if provider == "openai":
+        async for sentence in call_vlm_openai_streaming(
+            event=event, frame=frame, ctx_summary=ctx_summary,
+            last_fast_text=last_fast_text, actions_timeline_text=actions_timeline_text,
+            user_question=user_question, conversation_history=conversation_history,
+            slow_spoken=slow_spoken, cfg=cfg, include_nitrogen=nitrogen,
+        ):
+            yield sentence
+        return
+
+    # fallback：非流式，整句 yield
+    text = await call_vlm(
+        event=event, frame=frame, ctx_summary=ctx_summary,
+        last_fast_text=last_fast_text, actions_timeline_text=actions_timeline_text,
+        user_question=user_question, conversation_history=conversation_history,
+        slow_spoken=slow_spoken, cfg=cfg, include_nitrogen=nitrogen,
+    )
+    if text:
+        yield text

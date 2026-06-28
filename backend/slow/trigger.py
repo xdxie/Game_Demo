@@ -11,7 +11,7 @@ import time
 from typing import TYPE_CHECKING, Callable, Optional
 
 from backend.fast.event import EventType, GameEvent
-from backend.slow.vlm_factory import call_vlm
+from backend.slow.vlm_factory import call_vlm, call_vlm_streaming
 
 if TYPE_CHECKING:
     from PIL import Image
@@ -162,7 +162,9 @@ class VLMRequestManager:
                 else ""
             )
 
-            text = await call_vlm(
+            # 流式调用：每句到达立刻推 TTS，降低首包时延
+            sentences: list[str] = []
+            async for sentence in call_vlm_streaming(
                 event=event,
                 frame=args["frame"],
                 ctx_summary=ctx_snapshot,
@@ -171,23 +173,22 @@ class VLMRequestManager:
                 user_question=event.user_text if is_user_q else "",
                 conversation_history=args["conv_messages"],
                 slow_spoken=args.get("slow_spoken", []),
-                model=self._model,
-                max_tokens=self._max_tokens,
                 include_nitrogen=self._vlm_nitrogen_input,
-            )
+            ):
+                if not self._is_seek_generation_valid(args.get("utterance_seek_gen")):
+                    logger.debug("VLM streaming discarded mid-stream (stale): %s", event.type.value)
+                    return
+                if not sentences:
+                    # 首句到达时记录去重时间戳
+                    self._last_event_type  = event.type
+                    self._last_submit_time = time.time()
+                logger.info("VLM stream → TTS push [%s]: %s", args["priority"].name, sentence[:60])
+                self._tts.push(sentence, args["priority"])
+                sentences.append(sentence)
 
-            if not self._is_seek_generation_valid(args.get("utterance_seek_gen")):
-                logger.debug(
-                    "VLM result discarded (stale after seek): %s",
-                    event.type.value,
-                )
+            text = "".join(sentences)
+            if not text:
                 return
-
-            self._last_event_type  = event.type
-            self._last_submit_time = time.time()
-
-            logger.info("VLM result → TTS push [%s]: %s", args["priority"].name, text[:60])
-            self._tts.push(text, args["priority"])
 
             # 用户问答写入对话历史
             if is_user_q:
