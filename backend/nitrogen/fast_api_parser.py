@@ -1,50 +1,65 @@
 """
 将 action_fast_system（远端 FastAPI /predict）JSON 解析为 PerceptionSignal。
 
-扳机/摇杆为通用手柄语义，不假定赛车游戏。
+支持三种服务端 JSON 格式：
+  - raw_v3：j_left / j_right / buttons / button_tokens（模型原始 chunk）
+  - schema2：left_stick / buttons_held[{name,value}] / change_info
+  - schema1：action_summary.left_stick_mean / buttons_avg_pressed / change_info
 """
 
 from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 from backend.nitrogen.parser import (
     ATTACK_BUTTONS,
     DODGE_BUTTONS,
     PerceptionSignal,
 )
+from backend.nitrogen.raw_chunk_adapter import (
+    AdapterState,
+    is_raw_v3,
+    raw_chunk_to_signal,
+)
 
-_BTN_THRESHOLD = 0.5
+if TYPE_CHECKING:
+    pass
+
+_BTN_THRESHOLD = 0.25  # 与 ActionFilter / render_fast BUTTON_CONF_THRESHOLD 对齐
 
 
-def parse_predict_response(data: dict, btn_threshold: float = _BTN_THRESHOLD) -> PerceptionSignal:
-    """解析 POST /predict 返回的 JSON。
+def parse_predict_response(
+    data: dict,
+    btn_threshold: float = _BTN_THRESHOLD,
+    state: AdapterState | None = None,
+) -> PerceptionSignal:
+    """解析 POST /predict 返回的 JSON（自动识别 schema）。"""
+    if is_raw_v3(data):
+        return raw_chunk_to_signal(data, btn_threshold, state)
 
-    兼容两种格式：
-    - 旧格式：action_summary.{left_stick_mean, right_stick_mean, trigger_means, buttons_avg_pressed}
-    - 新格式（NitroGen 实际返回）：顶层 left_stick / right_stick / buttons_held
-    """
-    summary = data.get("action_summary") or {}
-    left = data.get("left_stick") or summary.get("left_stick_mean") or [0.0, 0.0]
-    right = data.get("right_stick") or summary.get("right_stick_mean") or [0.0, 0.0]
-    pressed = list(data.get("buttons_held") or summary.get("buttons_avg_pressed") or [])
-    triggers = summary.get("trigger_means") or {}
+    left, right, pressed, triggers, chunk_len = _extract_motion_and_buttons(data, btn_threshold)
 
     lx = float(left[0]) if len(left) > 0 else 0.0
     ly = float(left[1]) if len(left) > 1 else 0.0
-    # 扳机优先读 trigger_means（旧格式），否则从 buttons_held 推断
-    lt = float(triggers.get("LEFT_TRIGGER", 1.0 if "LEFT_TRIGGER" in pressed else 0.0))
-    rt = float(triggers.get("RIGHT_TRIGGER", 1.0 if "RIGHT_TRIGGER" in pressed else 0.0))
+    lt = float(triggers.get("LEFT_TRIGGER", 0.0))
+    rt = float(triggers.get("RIGHT_TRIGGER", 0.0))
 
     stick_mag = (lx * lx + ly * ly) ** 0.5
     attack_score = max(rt, _score_from_pressed(pressed, ATTACK_BUTTONS))
     dodge_score = max(lt, _score_from_pressed(pressed, DODGE_BUTTONS))
     guard_score = lt if lt >= btn_threshold else 0.0
+    navigate_score = stick_mag * 0.6
+
+    # 有实际操作时不让 WAIT 底分（0.12）盖住真实信号
+    has_activity = bool(pressed) or stick_mag > 0.15 or attack_score > 0 or dodge_score > 0
+    wait_score = 0.0 if has_activity else 0.12
 
     scores = {
         "ATTACK": attack_score,
         "DODGE": dodge_score,
         "GUARD": guard_score,
-        "NAVIGATE": stick_mag * 0.6,
-        "WAIT": 0.12,
+        "NAVIGATE": navigate_score,
+        "WAIT": wait_score,
     }
     primary_intent = max(scores, key=scores.__getitem__)
     confidence = min(float(scores[primary_intent]), 1.0)
@@ -52,13 +67,11 @@ def parse_predict_response(data: dict, btn_threshold: float = _BTN_THRESHOLD) ->
     direction = _infer_direction(lx, ly)
     is_change = bool(data.get("is_change"))
     change_info = data.get("change_info") or {}
-    change_distance = float(
-        change_info.get("distance") or change_info.get("stick_distance") or 0.0
-    )
+    change_distance = _extract_change_distance(change_info)
 
     hint_text = _build_hint_text(pressed, lx, ly, is_change, change_distance)
 
-    horizon = [f"{primary_intent}×{summary.get('chunk_length', 16)}"]
+    horizon = [f"{primary_intent}×{chunk_len}"]
 
     return PerceptionSignal(
         primary_intent=primary_intent,
@@ -80,16 +93,84 @@ def parse_predict_response(data: dict, btn_threshold: float = _BTN_THRESHOLD) ->
     )
 
 
-def _score_from_pressed(pressed: list[str], names: set[str]) -> float:
+def _is_new_schema(data: dict) -> bool:
+    return "left_stick" in data or "buttons_held" in data
+
+
+def _extract_motion_and_buttons(
+    data: dict,
+    btn_threshold: float,
+) -> tuple[list, list, list[str], dict[str, float], int]:
+    if _is_new_schema(data):
+        left = list(data.get("left_stick") or [0.0, 0.0])
+        right = list(data.get("right_stick") or [0.0, 0.0])
+        pressed = _buttons_held_to_pressed(data.get("buttons_held") or [], btn_threshold)
+        triggers = _triggers_from_pressed(pressed)
+        return left, right, pressed, triggers, 16
+
+    summary = data.get("action_summary") or {}
+    left = list(summary.get("left_stick_mean") or [0.0, 0.0])
+    right = list(summary.get("right_stick_mean") or [0.0, 0.0])
+    pressed = list(summary.get("buttons_avg_pressed") or [])
+    triggers = dict(summary.get("trigger_means") or {})
+    chunk_len = int(summary.get("chunk_length") or 16)
+    return left, right, pressed, triggers, chunk_len
+
+
+def _buttons_held_to_pressed(buttons_held: list, threshold: float) -> list[str]:
+    """新版 buttons_held[{name,value}] → ['SOUTH(0.72)', ...]"""
+    out: list[str] = []
+    for entry in buttons_held:
+        if isinstance(entry, dict):
+            name = str(entry.get("name", "")).strip()
+            if not name:
+                continue
+            try:
+                val = float(entry.get("value", 1.0))
+            except (TypeError, ValueError):
+                val = 1.0
+            if val >= threshold:
+                out.append(f"{name}({val:.2f})")
+        elif isinstance(entry, str):
+            out.append(entry)
+    return out
+
+
+def _triggers_from_pressed(pressed: list[str]) -> dict[str, float]:
+    triggers: dict[str, float] = {"LEFT_TRIGGER": 0.0, "RIGHT_TRIGGER": 0.0}
     for entry in pressed:
         name = entry.split("(")[0].strip()
-        if name in names:
-            try:
-                val = float(entry.split("(")[1].rstrip(")"))
-                return val
-            except (IndexError, ValueError):
-                return 1.0
+        if name not in triggers:
+            continue
+        try:
+            triggers[name] = float(entry.split("(")[1].rstrip(")"))
+        except (IndexError, ValueError):
+            triggers[name] = 1.0
+    return triggers
+
+
+def _extract_change_distance(change_info: dict) -> float:
+    if not change_info:
+        return 0.0
+    if change_info.get("stick_distance") is not None:
+        return float(change_info["stick_distance"])
+    if change_info.get("distance") is not None:
+        return float(change_info["distance"])
     return 0.0
+
+
+def _score_from_pressed(pressed: list[str], names: set[str]) -> float:
+    best = 0.0
+    for entry in pressed:
+        name = entry.split("(")[0].strip()
+        if name not in names:
+            continue
+        try:
+            val = float(entry.split("(")[1].rstrip(")"))
+        except (IndexError, ValueError):
+            val = 1.0
+        best = max(best, val)
+    return best
 
 
 def _infer_direction(lx: float, ly: float) -> str | None:

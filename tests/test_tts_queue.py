@@ -68,7 +68,7 @@ class TestTTSQueueImmediate:
 class TestTTSQueuePriority:
     def test_user_answer_interrupts_current(self, mock_tts_engine, mock_asr_handler):
         mock_tts_engine.speak_async.side_effect = (
-            lambda text, is_cancelled=None, on_dispatched=None, on_error=None: None
+            lambda text, is_cancelled=None, on_dispatched=None, on_error=None, **kwargs: None
         )
 
         on_interrupt = MagicMock()
@@ -86,7 +86,7 @@ class TestTTSQueuePriority:
         speak_order = []
         utterance_ids = []
 
-        def _speak(text, is_cancelled=None, on_dispatched=None, on_error=None):
+        def _speak(text, is_cancelled=None, on_dispatched=None, on_error=None, **kwargs):
             speak_order.append(text)
             utterance_ids.append(q._pending_done_id)
             if on_dispatched and not (is_cancelled and is_cancelled()):
@@ -151,7 +151,7 @@ class TestTTSQueuePlaybackDone:
 
     def test_fallback_triggers_unmute(self, mock_tts_engine, mock_asr_handler):
         mock_tts_engine.speak_async.side_effect = \
-            lambda text, is_cancelled=None, on_dispatched=None, on_error=None: (
+            lambda text, is_cancelled=None, on_dispatched=None, on_error=None, **kwargs: (
                 on_dispatched(0.05) if on_dispatched else None
             )
 
@@ -163,7 +163,7 @@ class TestTTSQueuePlaybackDone:
 
     def test_synth_error_advances_queue(self, mock_tts_engine, mock_asr_handler):
         mock_tts_engine.speak_async.side_effect = \
-            lambda text, is_cancelled=None, on_dispatched=None, on_error=None: (
+            lambda text, is_cancelled=None, on_dispatched=None, on_error=None, **kwargs: (
                 on_error() if on_error else None
             )
 
@@ -214,7 +214,7 @@ class TestTTSCallbacks:
     def test_on_speak_start_called_with_utterance_id(self, mock_tts_engine, mock_asr_handler):
         on_start = MagicMock()
         mock_tts_engine.speak_async.side_effect = (
-            lambda text, is_cancelled=None, on_dispatched=None, on_error=None: None
+            lambda text, is_cancelled=None, on_dispatched=None, on_error=None, **kwargs: None
         )
 
         q = TTSQueue(mock_tts_engine, mock_asr_handler,
@@ -249,7 +249,7 @@ class TestTTSQueueStaleSynthesis:
         """打断后 is_cancelled 应返回 True，阻止旧 utterance 继续"""
         cancelled_fns = []
 
-        def capture_cancel(text, is_cancelled=None, on_dispatched=None, on_error=None):
+        def capture_cancel(text, is_cancelled=None, on_dispatched=None, on_error=None, **kwargs):
             if is_cancelled:
                 cancelled_fns.append(is_cancelled)
 
@@ -271,7 +271,7 @@ class TestTTSQueueConcurrency:
         started = []
         start_barrier = threading.Barrier(2)
 
-        def _speak(text, is_cancelled=None, on_dispatched=None, on_error=None):
+        def _speak(text, is_cancelled=None, on_dispatched=None, on_error=None, **kwargs):
             started.append(text)
             if on_dispatched and not (is_cancelled and is_cancelled()):
                 on_dispatched(0.1)
@@ -303,7 +303,7 @@ class TestTTSQueueConcurrency:
 class TestTTSQueueInterruptUnmute:
     def test_clear_and_stop_unmutes_asr(self, mock_tts_engine, mock_asr_handler):
         mock_tts_engine.speak_async.side_effect = (
-            lambda text, is_cancelled=None, on_dispatched=None, on_error=None: None
+            lambda text, is_cancelled=None, on_dispatched=None, on_error=None, **kwargs: None
         )
         q = TTSQueue(mock_tts_engine, mock_asr_handler,
                      inter_gap=0.0, fallback_margin=0.0)
@@ -314,7 +314,7 @@ class TestTTSQueueInterruptUnmute:
 
     def test_barge_in_interrupt_unmutes_and_clears_fast(self, mock_tts_engine, mock_asr_handler):
         mock_tts_engine.speak_async.side_effect = (
-            lambda text, is_cancelled=None, on_dispatched=None, on_error=None: None
+            lambda text, is_cancelled=None, on_dispatched=None, on_error=None, **kwargs: None
         )
         q = TTSQueue(mock_tts_engine, mock_asr_handler,
                      inter_gap=0.0, fallback_margin=0.0)

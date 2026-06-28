@@ -50,6 +50,9 @@ def make_signal(
     confidence: float = 0.8,
     direction: str | None = None,
     magnitude: float = 0.0,
+    pressed_buttons: list[str] | None = None,
+    is_action_change: bool = False,
+    change_distance: float = 0.0,
 ) -> PerceptionSignal:
     return PerceptionSignal(
         primary_intent=intent,
@@ -57,6 +60,9 @@ def make_signal(
         move_direction=direction,
         move_magnitude=magnitude,
         horizon_sequence=[f"{intent}×16"],
+        pressed_buttons=pressed_buttons or [],
+        is_action_change=is_action_change,
+        change_distance=change_distance,
     )
 
 

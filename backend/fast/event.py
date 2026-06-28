@@ -4,9 +4,11 @@ GameEvent 和 EventType 数据结构定义。
 """
 
 from __future__ import annotations
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
+
+from backend.fast.priority import FastPriority
 
 if TYPE_CHECKING:
     from backend.nitrogen.parser import PerceptionSignal
@@ -36,3 +38,5 @@ class GameEvent:
     trigger_slow: bool             # 是否触发慢通道
     user_text: str = ""            # 用户提问内容（USER_QUESTION 时使用）
     button_name: str = ""          # 触发按键名（仅 BUTTON_PRESS 时有值，如 "SOUTH"）
+    combo_keys: Optional[frozenset[str]] = None  # 跨帧/同帧法术 combo 修饰键+面部键
+    fast_priority: FastPriority = FastPriority.INTENT

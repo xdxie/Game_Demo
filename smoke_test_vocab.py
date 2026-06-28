@@ -93,9 +93,9 @@ def dir_event(etype, direction=None):
         perception=sig(direction=direction), trigger_fast=True, trigger_slow=False,
     )
 
-# Wukong SUDDEN_DODGE 有方向
+# Wukong SUDDEN_DODGE 有方向时也走无方向模板（suppress_directional_fast）
 text = render_fast(dir_event(EventType.SUDDEN_DODGE, "LEFT"), "black_myth_wukong")
-check("Wukong dodge+dir → 含'左'", "左" in text, repr(text))
+check("Wukong dodge+dir → 翻滚闪避！（无方向降级）", text == "翻滚闪避！", repr(text))
 
 # Wukong SUDDEN_DODGE 无方向
 text = render_fast(dir_event(EventType.SUDDEN_DODGE), "black_myth_wukong")

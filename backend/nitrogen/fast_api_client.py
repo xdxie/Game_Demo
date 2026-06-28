@@ -12,13 +12,14 @@ import logging
 import threading
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Callable, Optional
 
 import httpx
 from PIL import Image
 
-from backend.nitrogen.fast_api_parser import parse_predict_response
+from backend.nitrogen.fast_api_parser import _BTN_THRESHOLD, parse_predict_response
 from backend.nitrogen.parser import PerceptionSignal
+from backend.nitrogen.raw_chunk_adapter import AdapterState, is_raw_v3
 
 if TYPE_CHECKING:
     from backend.video.frame_pipe import VideoFramePipe
@@ -68,10 +69,10 @@ class FastApiNitroGenClient:
     def __init__(
         self,
         base_url: str = "http://localhost:8000",
-        target_fps: float = 2.5,
+        target_fps: float = 8.0,
         timeout_sec: float = 60.0,
         reset_on_start: bool = True,
-        btn_threshold: float = 0.5,
+        btn_threshold: float = _BTN_THRESHOLD,
         dump_path: str = "",
         dump_pretty: bool = False,
     ):
@@ -102,6 +103,20 @@ class FastApiNitroGenClient:
         self._dump_pretty = dump_pretty
         self._dump_fp: Optional[io.TextIOWrapper] = None
         self._dump_lock = threading.Lock()
+        self._adapter_state = AdapterState()
+
+        self._latest_raw: dict | None = None
+
+        # 推理成功后同步回调 (signal, video_time, raw_chunk)；由 GameSession 注册
+        self.on_signal: Optional[Callable[[PerceptionSignal, float, dict | None], None]] = None
+
+    @property
+    def latest_raw(self) -> dict | None:
+        with self._signal_lock:
+            return self._latest_raw
+
+    def reset_adapter_state(self) -> None:
+        self._adapter_state.reset()
 
     @property
     def last_error(self) -> Optional[str]:
@@ -162,7 +177,9 @@ class FastApiNitroGenClient:
     def clear_signal(self):
         with self._signal_lock:
             self._latest_signal = None
+            self._latest_raw = None
             self._signal_generation += 1
+        self.reset_adapter_state()
         try:
             self._post_reset()
         except Exception as e:
@@ -200,15 +217,29 @@ class FastApiNitroGenClient:
                     base_url=self.base_url,
                     timeout_sec=self.timeout_sec,
                 )
-            # 落盘原始数据（不阻塞主推理）
+            signal = parse_predict_response(
+                data, self.btn_threshold, self._adapter_state,
+            )
             if self._dump_fp is not None:
                 try:
+                    schema = "raw_v3" if is_raw_v3(data) else (
+                        "schema2" if ("left_stick" in data or "buttons_held" in data)
+                        else "schema1"
+                    )
                     rec = {
                         "ts": time.time(),
                         "inference_count": self.inference_count + 1,
-                        "action_summary": data.get("action_summary"),
-                        "is_change": data.get("is_change"),
-                        "change_info": data.get("change_info"),
+                        "schema": schema,
+                        "raw": data,
+                        "parsed": {
+                            "primary_intent": signal.primary_intent,
+                            "confidence": round(signal.confidence, 4),
+                            "move_direction": signal.move_direction,
+                            "move_magnitude": round(signal.move_magnitude, 4),
+                            "pressed_buttons": signal.pressed_buttons,
+                            "is_action_change": signal.is_action_change,
+                            "change_distance": round(signal.change_distance, 4),
+                        },
                     }
                     indent = 2 if self._dump_pretty else None
                     line = json.dumps(rec, ensure_ascii=False, indent=indent)
@@ -217,10 +248,25 @@ class FastApiNitroGenClient:
                         self._dump_fp.flush()
                 except Exception as e:
                     logger.debug("NitroGen dump write error: %s", e)
-            signal = parse_predict_response(data, self.btn_threshold)
             with self._signal_lock:
                 if gen_at_start == self._signal_generation:
                     self._latest_signal = signal
+                    self._latest_raw = data if is_raw_v3(data) else None
+                    should_notify = True
+                else:
+                    should_notify = False
+            if should_notify:
+                cb = self.on_signal
+                if cb is not None:
+                    vt = (
+                        self._frame_pipe.video_position
+                        if self._frame_pipe is not None
+                        else 0.0
+                    )
+                    try:
+                        cb(signal, vt, data if is_raw_v3(data) else None)
+                    except Exception as e:
+                        logger.error("FastAPI NitroGen on_signal callback error: %s", e)
             self.inference_count += 1
             self._last_error = None
             self._last_ok_time = time.time()

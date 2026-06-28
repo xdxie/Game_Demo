@@ -17,14 +17,14 @@ class Config:
     nitrogen_fast_api_url: str = "http://localhost:18000"
     nitrogen_fast_api_timeout_sec: float = 60.0
     nitrogen_fast_api_reset_on_start: bool = True
-    nitrogen_fast_api_fps: float = 2.5   # 远端推理较慢，默认低于 10fps
+    nitrogen_fast_api_fps: float = 8.0   # 远端推理；Wukong 法术 demo 推荐 8，慢 GPU 可 env 调低
     nitrogen_ssh_tunnel: bool = True     # 启动时自动 ssh -L（见 NITROGEN_SSH_*）
     nitrogen_ssh_host: str = "connect.bjb1.seetacloud.com"
     nitrogen_ssh_port: int = 18037
     nitrogen_ssh_user: str = "root"
     nitrogen_ssh_remote_port: int = 8000
     nitrogen_ssh_key: str = ""           # 可选私钥路径
-    nitrogen_ssh_password: str = "qmkXaxUs99f4"      # SSH 密码
+    nitrogen_ssh_password: str = ""                  # SSH 密码（请用 .env NITROGEN_SSH_PASSWORD 配置）
     nitrogen_dump_path: str = ""         # 原始 /predict 落盘路径；空串=不落盘
     nitrogen_dump_pretty: bool = False   # True=人类可读缩进 JSON，False=JSONL（默认）
     fast_tts_enabled: bool = True      # mock 模式下默认关闭，见 _apply_env
@@ -41,6 +41,19 @@ class Config:
         "movement_shift":   15.0,   # 走位提示不宜太频繁，15s 冷却
         "pattern_completed": 8.0,
     })
+
+    # ── 快系统：输出门控（2号负责调优）────────────────────────────────
+    fast_modifier_window_sec: float = 0.8
+    wukong_rt_modifier_window_sec: float = 1.0
+    fast_action_change_threshold: float = 0.15
+    fast_gate_p0_cooldown: float = 0.8
+    fast_gate_p1_cooldown: float = 1.2
+    fast_gate_p3_cooldown: float = 4.0
+    fast_gate_wukong_p3_cooldown: float = 25.0
+    fast_gate_directional_suppress_sec: float = 3.0
+    fast_gate_wukong_mag_threshold: float = 0.85
+    fast_gate_forza_brake_cooldown: float = 0.5
+    fast_gate_wukong_heal_cooldown: float = 3.0
 
     # ── 慢系统：VLM（4号负责调优）────────────────────────────────────
     vlm_provider: str = "openai"          # openai | anthropic | mock
@@ -71,7 +84,7 @@ class Config:
     tts_user_inter_gap: float = 0.15        # 用户问答播报后的间隔（秒）
     tts_done_fallback_margin: float = 1.0     # 前端未回 tts_done 时的额外宽限（秒）
     tts_synthesis_timeout_sec: float = 15.0   # edge-tts 合成超时（秒），防止 ASR 长期 muted
-    fast_hint_expire_sec: float = 2.0       # 快提示超时丢弃（秒）
+    fast_hint_expire_sec: float = 5.0       # 快提示超时丢弃（秒）；SPELL 排队时避免 2s 内过期
 
     # ── ASR（5号负责调优）─────────────────────────────────────────────
     # asr_engine: faster-whisper | openai-whisper
@@ -89,7 +102,7 @@ class Config:
     barge_in_enabled: bool = True           # TTS 播报时检测用户说话并打断
     barge_in_threshold_mult: float = 2.0   # 打断阈值 = 静音阈值 × 此系数（防视频串音）
 
-    # ── 全局播报频率上限（硬限制）────────────────────────────────────
+    # 全局播报频率上限（硬限制）────────────────────────────────────
     global_tts_min_interval: float = 8.0    # 任意两次被动播报之间至少间隔（秒）
 
 

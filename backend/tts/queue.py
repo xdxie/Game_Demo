@@ -24,9 +24,10 @@ logger = logging.getLogger(__name__)
 
 class Priority(IntEnum):
     USER_ANSWER  = 0
-    FAST_HINT    = 1
-    SLOW_ADVICE  = 2
-    SLOW_SUMMARY = 3
+    FAST_SPELL   = 1
+    FAST_HINT    = 2
+    SLOW_ADVICE  = 3
+    SLOW_SUMMARY = 4
 
 
 @dataclass(order=True)
@@ -39,6 +40,7 @@ class TTSItem:
 
 MAX_AGE: dict[Priority, float] = {
     Priority.USER_ANSWER:  30.0,
+    Priority.FAST_SPELL:    2.0,
     Priority.FAST_HINT:     2.0,
     Priority.SLOW_ADVICE:   8.0,
     Priority.SLOW_SUMMARY: 15.0,
@@ -223,11 +225,12 @@ class TTSQueue:
             synth_started = time.time()
 
         channel = _priority_to_channel(item.priority)
+        use_fast_voice = item.priority in (Priority.FAST_HINT, Priority.FAST_SPELL)
         speaker = (self._tts._volc_speaker_fast
-                   if item.priority == Priority.FAST_HINT
+                   if use_fast_voice
                    else self._tts._volc_speaker_slow)
         speed_ratio = (self._tts._volc_speed_ratio_fast
-                       if item.priority == Priority.FAST_HINT
+                       if use_fast_voice
                        else self._tts._volc_speed_ratio_slow)
         if self._on_speak_start:
             self._on_speak_start(item.text, channel, uid)
@@ -342,6 +345,7 @@ class TTSQueue:
 def _priority_to_channel(p: Priority) -> str:
     return {
         Priority.USER_ANSWER:  "user_answer",
+        Priority.FAST_SPELL:   "fast",
         Priority.FAST_HINT:    "fast",
         Priority.SLOW_ADVICE:  "slow",
         Priority.SLOW_SUMMARY: "slow",

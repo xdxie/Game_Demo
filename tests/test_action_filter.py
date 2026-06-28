@@ -8,6 +8,7 @@
 """
 
 import pytest
+from unittest.mock import patch
 from tests.conftest import make_signal, make_event
 from backend.fast.action_filter import ActionFilter
 from backend.fast.event import EventType
@@ -33,9 +34,12 @@ def af():
 
 # ── 便捷封装 ──────────────────────────────────────────────────────────
 
-def p(af, signal, t):
-    """process() with global_min_interval=0, 专注事件检测逻辑"""
-    return af.process(signal, t, global_min_interval=0.0)
+def p(af, signal, t, interval=0.0, wall_time=None):
+    """process() with global_min_interval=0 by default; optional wall_time for冷却/间隔测试。"""
+    if wall_time is not None:
+        with patch("backend.fast.action_filter.time.time", return_value=wall_time):
+            return af.process(signal, t, global_min_interval=interval)
+    return af.process(signal, t, global_min_interval=interval)
 
 
 # ── SUDDEN_DODGE ──────────────────────────────────────────────────────
@@ -194,11 +198,11 @@ class TestCooldown:
 
     def test_cooldown_expires_after_duration(self, af):
         """超过冷却时间（3s）后可再次触发"""
-        p(af, make_signal("WAIT", 0.9), 0.0)
-        p(af, make_signal("DODGE", 0.9), 1.0)
+        p(af, make_signal("WAIT", 0.9), 0.0, wall_time=1000.0)
+        p(af, make_signal("DODGE", 0.9), 1.0, wall_time=1000.0)
 
         af._prev_signal = make_signal("WAIT", 0.9)
-        event = p(af, make_signal("DODGE", 0.9), 5.0)   # 距上次 4s > 3s
+        event = p(af, make_signal("DODGE", 0.9), 5.0, wall_time=1005.0)
         assert event is not None
         assert event.type == EventType.SUDDEN_DODGE
 
@@ -236,11 +240,12 @@ class TestGlobalMinInterval:
 
     def test_global_interval_expires(self, af):
         """全局间隔过后允许触发"""
-        p(af, make_signal("WAIT", 0.9), 0.0)
-        af.process(make_signal("DODGE", 0.9), 1.0, global_min_interval=2.0)
-
-        af._prev_signal = make_signal("WAIT", 0.9)
-        event = af.process(make_signal("DODGE", 0.9), 5.0, global_min_interval=2.0)
+        p(af, make_signal("WAIT", 0.9), 0.0, wall_time=1000.0)
+        with patch("backend.fast.action_filter.time.time", return_value=1000.0):
+            af.process(make_signal("DODGE", 0.9), 1.0, global_min_interval=2.0)
+        with patch("backend.fast.action_filter.time.time", return_value=1005.0):
+            af._prev_signal = make_signal("WAIT", 0.9)
+            event = af.process(make_signal("DODGE", 0.9), 5.0, global_min_interval=2.0)
         assert event is not None
 
 
@@ -269,19 +274,20 @@ class TestReset:
 
     def test_no_crash_after_reset(self, af):
         """reset 后继续 process 不应崩溃"""
-        p(af, make_signal("DODGE", 0.9), 0.0)
+        p(af, make_signal("DODGE", 0.9), 0.0, wall_time=1000.0)
         af.reset()
-        result = p(af, make_signal("DODGE", 0.9), 10.0)
+        result = p(af, make_signal("DODGE", 0.9), 10.0, wall_time=1005.0)
         assert result is not None
 
     def test_backward_seek_allows_trigger(self, af):
         """seek 回退后视频时钟小于上次触发时间，不应被冷却错误阻挡"""
-        p(af, make_signal("WAIT", 0.9), 0.0)
-        fired = p(af, make_signal("DODGE", 0.9), 95.0)
+        p(af, make_signal("WAIT", 0.9), 0.0, wall_time=1000.0)
+        fired = p(af, make_signal("DODGE", 0.9), 95.0, wall_time=1000.0)
         assert fired is not None
 
         af.reset()
         af._prev_signal = make_signal("WAIT", 0.9)
-        after_seek = af.process(make_signal("DODGE", 0.9), 11.0)
+        with patch("backend.fast.action_filter.time.time", return_value=1005.0):
+            after_seek = af.process(make_signal("DODGE", 0.9), 11.0)
         assert after_seek is not None
         assert after_seek.type == EventType.SUDDEN_DODGE

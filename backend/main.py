@@ -81,7 +81,8 @@ from backend.nitrogen.factory import (
     nitrogen_mode_label,
 )
 from backend.fast.action_filter import ActionFilter
-from backend.fast.templates import render_fast
+from backend.fast.templates import render_fast, reset_variant_rotation
+from backend.fast.output_gate import FastOutputGate, FastGateConfig
 from backend.fast.event import EventType, GameEvent
 from backend.slow.context_buffer import ContextBuffer, ConversationHistory, FastHistory, SlowSpokenHistory
 from backend.slow.trigger import VLMRequestManager
@@ -271,7 +272,20 @@ class GameSession:
             confidence_threshold=cfg.fast_trigger_confidence,
             sustained_danger_sec=cfg.sustained_danger_sec,
             cooldowns=cfg.cooldowns,
+            modifier_window_sec=cfg.fast_modifier_window_sec,
+            wukong_rt_modifier_window_sec=cfg.wukong_rt_modifier_window_sec,
+            action_change_threshold=cfg.fast_action_change_threshold,
         )
+        self.fast_output_gate = FastOutputGate(FastGateConfig(
+            p0_cooldown_sec=cfg.fast_gate_p0_cooldown,
+            p1_cooldown_sec=cfg.fast_gate_p1_cooldown,
+            p3_cooldown_sec=cfg.fast_gate_p3_cooldown,
+            wukong_p3_cooldown_sec=cfg.fast_gate_wukong_p3_cooldown,
+            directional_suppress_sec=cfg.fast_gate_directional_suppress_sec,
+            wukong_mag_threshold=cfg.fast_gate_wukong_mag_threshold,
+            forza_brake_cooldown_sec=cfg.fast_gate_forza_brake_cooldown,
+            wukong_heal_cooldown_sec=cfg.fast_gate_wukong_heal_cooldown,
+        ))
 
         self.ctx_buffer = ContextBuffer(window_sec=cfg.context_window_sec)
         self.conv_hist  = ConversationHistory()
@@ -330,6 +344,7 @@ class GameSession:
             broadcast_audio=self._broadcast_tts_audio,
             max_age={
                 Priority.USER_ANSWER:  30.0,
+                Priority.FAST_SPELL:   cfg.fast_hint_expire_sec,
                 Priority.FAST_HINT:    cfg.fast_hint_expire_sec,
                 Priority.SLOW_ADVICE:  cfg.slow_max_queue_age,
                 Priority.SLOW_SUMMARY: cfg.slow_max_queue_age,
@@ -377,6 +392,9 @@ class GameSession:
         if warmup.get_status()["status"] != "ready":
             await warmup.ensure_warmup(self.cfg)
         self.tts_engine._cache.update(warmup.get_tts_cache())
+        if hasattr(self.nitrogen, "on_signal"):
+            self.nitrogen.on_signal = self._on_nitrogen_signal
+
         self.nitrogen.start(self.frame_buffer)
 
         self._running = True
@@ -502,14 +520,15 @@ class GameSession:
                     "is_change":  signal.is_action_change,
                 })
 
-                if not self._analysis_paused:
-                    event = self.action_filter.process(
+                # ActionFilter 由 NitroGen 推理回调 _on_nitrogen_signal 驱动（fast_api）；
+                # mock/zmq 无 on_signal 时仍在此处理。
+                if not self._analysis_paused and not getattr(
+                    self.nitrogen, "on_signal", None,
+                ):
+                    await self._process_nitrogen_signal(
                         signal, video_time,
-                        global_min_interval=self.cfg.global_tts_min_interval,
+                        getattr(self.nitrogen, "latest_raw", None),
                     )
-                    if event is not None:
-                        self._tlog("事件", f"{event.type.value} fast={event.trigger_fast} slow={event.trigger_slow}")
-                        await self._handle_event(event)
 
             last_err = getattr(self.nitrogen, "last_error", None)
             err_count = getattr(self.nitrogen, "error_count", 0)
@@ -520,16 +539,61 @@ class GameSession:
 
             await asyncio.sleep(interval)
 
+    def _on_nitrogen_signal(self, signal, video_time: float, raw_chunk=None):
+        """NitroGen 推理线程回调：每次 /predict 后立即跑 ActionFilter。"""
+        if self._analysis_paused:
+            return
+        self._schedule(self._process_nitrogen_signal(signal, video_time, raw_chunk))
+
+    async def _process_nitrogen_signal(
+        self, signal, video_time: float, raw_chunk=None,
+    ):
+        event = self.action_filter.process(
+            signal, video_time,
+            global_min_interval=self.cfg.global_tts_min_interval,
+            game_id=self.current_game_id,
+            raw_chunk=raw_chunk,
+        )
+        if event is None:
+            return
+        s = event.perception
+        self._tlog(
+            "模型原始",
+            f"intent={s.primary_intent} conf={s.confidence:.2f} "
+            f"dir={s.move_direction} buttons={s.pressed_buttons}",
+        )
+        self._tlog(
+            "事件",
+            f"{event.type.value} fast={event.trigger_fast} "
+            f"slow={event.trigger_slow} pri={event.fast_priority.name}",
+        )
+        await self._handle_event(event)
+
     async def _handle_event(self, event: GameEvent):
         self.ctx_buffer.push_event(event.timestamp, event)
         seek_gen = self.asr_handler.seek_generation
 
         if event.trigger_fast and self.cfg.fast_tts_enabled and self._greeting_delivered:
             text = render_fast(event, self.current_game_id)
-            self.fast_hist.record(event.timestamp, text)
-            if seek_gen == self.asr_handler.seek_generation:
-                self._tlog("快提示", text)
-                self.tts_queue.push(text, Priority.FAST_HINT)
+            self._tlog(
+                "翻译",
+                f"[{self.current_game_id}] {event.type.value} -> '{text}'",
+            )
+            now = time.time()
+            if not text:
+                self._tlog("快提示", "跳过: empty_text")
+            elif not self.fast_output_gate.should_speak(
+                event, text, self.current_game_id, now,
+            ):
+                self._tlog("快提示", "跳过: gate (见日志 cooldown/suppress 详情)")
+            else:
+                self.fast_hist.record(event.timestamp, text)
+                if seek_gen == self.asr_handler.seek_generation:
+                    self._tlog("快提示", text)
+                    self.tts_queue.push(
+                        text,
+                        priority=self.fast_output_gate.tts_priority(event, text),
+                    )
 
         if event.trigger_slow:
             frame = self.frame_buffer.latest_frame
@@ -658,6 +722,10 @@ class GameSession:
             self.ctx_buffer.clear()
             self.fast_hist.clear()
             self.action_filter.reset()
+            self.fast_output_gate.reset()
+            reset_variant_rotation()
+            if hasattr(self.nitrogen, "reset_adapter_state"):
+                self.nitrogen.reset_adapter_state()
             self.nitrogen.clear_signal()
             self.frame_buffer.seek(new_time)
 
