@@ -112,6 +112,7 @@ class VLMRequestManager:
             "event":         event,
             "frame":         frame,
             "priority":      priority,
+            "submit_at":     time.time(),          # wall clock，用于超时判断
             "ctx_snapshot":  self._ctx.summarize(),
             "fast_recent":   self._fast_hist.get_recent_summary(event.timestamp),
             "conv_messages": self._conv_hist.to_messages() if is_user_q else [],
@@ -182,6 +183,16 @@ class VLMRequestManager:
                     event.type.value,
                 )
                 return
+
+            # 超时检查：从事件触发到 VLM 返回若超过 4s，建议已过时，丢弃（用户提问不丢弃）
+            if not is_user_q:
+                elapsed = time.time() - args.get("submit_at", busy_since)
+                if elapsed > 4.0:
+                    logger.info(
+                        "VLM result discarded (too late %.1fs > 4s): %s: %s",
+                        elapsed, event.type.value, text[:40],
+                    )
+                    return
 
             self._last_event_type  = event.type
             self._last_submit_time = time.time()
