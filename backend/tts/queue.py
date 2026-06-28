@@ -127,6 +127,16 @@ class TTSQueue:
         )
         interrupt = False
         with self._lock:
+            # 快系统新内容入队时，清掉队列中尚未播报的旧快系统条目（只保最新）
+            if priority in (Priority.FAST_SPELL, Priority.FAST_HINT):
+                dropped = [i for i in self._heap
+                           if i.priority in (Priority.FAST_SPELL, Priority.FAST_HINT)]
+                if dropped:
+                    self._heap = [i for i in self._heap
+                                  if i.priority not in (Priority.FAST_SPELL, Priority.FAST_HINT)]
+                    heapq.heapify(self._heap)
+                    logger.debug("TTS fast queue cleared %d stale item(s) for new: %s",
+                                 len(dropped), text[:20])
             heapq.heappush(self._heap, item)
             if priority == Priority.USER_ANSWER and self._is_speaking:
                 interrupt = True

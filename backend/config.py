@@ -46,9 +46,9 @@ class Config:
     fast_modifier_window_sec: float = 0.8
     wukong_rt_modifier_window_sec: float = 1.0
     fast_action_change_threshold: float = 0.15
-    fast_gate_p0_cooldown: float = 0.8
-    fast_gate_p1_cooldown: float = 1.2
-    fast_gate_p3_cooldown: float = 4.0
+    fast_gate_p0_cooldown: float = 1.5
+    fast_gate_p1_cooldown: float = 3.0
+    fast_gate_p3_cooldown: float = 6.0
     fast_gate_wukong_p3_cooldown: float = 25.0
     fast_gate_directional_suppress_sec: float = 3.0
     fast_gate_wukong_mag_threshold: float = 0.85
