@@ -265,6 +265,8 @@ class GameSession:
         self.current_game_id: str = "street_fighter_6"
         self._first_frame_greeted = False
         self._greeting_delivered = False  # 慢系统首句播报前，快系统不输出
+        self._user_qa_active = False      # 用户开麦到 USER_ANSWER 播完期间，屏蔽自动建议
+        self._last_playing_channel: str = ""  # 记录当前正在播放的 channel，供 tts_end 判断
 
         self.frame_buffer = FrameBuffer()
         self.nitrogen = create_nitrogen_client(cfg)
@@ -574,33 +576,40 @@ class GameSession:
         seek_gen = self.asr_handler.seek_generation
 
         if event.trigger_fast and self.cfg.fast_tts_enabled and self._greeting_delivered:
-            text = render_fast(event, self.current_game_id)
-            self._tlog(
-                "翻译",
-                f"[{self.current_game_id}] {event.type.value} -> '{text}'",
-            )
-            now = time.time()
-            if not text:
-                self._tlog("快提示", "跳过: empty_text")
-            elif not self.fast_output_gate.should_speak(
-                event, text, self.current_game_id, now,
-            ):
-                self._tlog("快提示", "跳过: gate (见日志 cooldown/suppress 详情)")
+            if self._user_qa_active:
+                self._tlog("快提示", "跳过: user_qa_active")
             else:
-                self.fast_hist.record(event.timestamp, text)
-                if seek_gen == self.asr_handler.seek_generation:
-                    self._tlog("快提示", text)
-                    self.tts_queue.push(
-                        text,
-                        priority=self.fast_output_gate.tts_priority(event, text),
-                    )
+                text = render_fast(event, self.current_game_id)
+                self._tlog(
+                    "翻译",
+                    f"[{self.current_game_id}] {event.type.value} -> '{text}'",
+                )
+                now = time.time()
+                if not text:
+                    self._tlog("快提示", "跳过: empty_text")
+                elif not self.fast_output_gate.should_speak(
+                    event, text, self.current_game_id, now,
+                ):
+                    self._tlog("快提示", "跳过: gate (见日志 cooldown/suppress 详情)")
+                else:
+                    self.fast_hist.record(event.timestamp, text)
+                    if seek_gen == self.asr_handler.seek_generation:
+                        self._tlog("快提示", text)
+                        self.tts_queue.push(
+                            text,
+                            priority=self.fast_output_gate.tts_priority(event, text),
+                        )
 
         if event.trigger_slow:
-            frame = self.frame_buffer.latest_frame
-            if frame is not None:
-                await self.vlm_manager.submit(
-                    event, frame, utterance_seek_gen=seek_gen,
-                )
+            is_user_question = (event.type == EventType.USER_QUESTION)
+            if self._user_qa_active and not is_user_question:
+                self._tlog("慢系统", "跳过: user_qa_active")
+            else:
+                frame = self.frame_buffer.latest_frame
+                if frame is not None:
+                    await self.vlm_manager.submit(
+                        event, frame, utterance_seek_gen=seek_gen,
+                    )
 
     async def _trigger_first_frame_greeting(self):
         """首帧到达时，自动向慢系统发送开场白请求"""
@@ -843,6 +852,7 @@ class GameSession:
     def _on_tts_playback(self, utterance_id: int, channel: str, text: str = ""):
         """MP3 就绪、即将播放 → 此时才 mute 麦克风。"""
         self._tlog("播报中", f"#{utterance_id} 开始播放")
+        self._last_playing_channel = channel
         if channel == "slow" and text:
             self.slow_spoken_hist.record(text)
         self._schedule(self._broadcast({
@@ -860,6 +870,9 @@ class GameSession:
         }))
 
     def _on_tts_end(self):
+        if self._user_qa_active and self._last_playing_channel == "user_answer":
+            self._user_qa_active = False
+            logger.info("user_qa_active cleared: USER_ANSWER playback finished")
         self._schedule(self._broadcast({"type": "tts_end"}))
 
     def _broadcast_tts_audio(self, utterance_id: int, audio_bytes: bytes):
@@ -1425,8 +1438,15 @@ async def websocket_endpoint(ws: WebSocket):
                     elif mtype == "set_asr" and _session:
                         enabled = data.get("enabled", False)
                         if enabled:
+                            # 用户开麦：中断当前播报、清空自动建议队列、屏蔽后续自动触发
+                            _session._user_qa_active = True
+                            _session.tts_queue.clear_by_priority([
+                                Priority.FAST_SPELL, Priority.FAST_HINT,
+                                Priority.SLOW_ADVICE, Priority.SLOW_SUMMARY,
+                            ])
+                            _session.tts_queue.clear_and_stop(notify=True)
+                            logger.info("ASR enabled by user: qa_active=True, TTS cleared")
                             _session.asr_handler.force_unmute()
-                            logger.info("ASR enabled by user")
                         else:
                             _session.asr_handler.mute()
                             logger.info("ASR disabled by user")
