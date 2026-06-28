@@ -5,7 +5,6 @@ __pycache__/
 .pytest_cache/
 
 # 环境
-.env
 *.egg-info/
 dist/
 build/
