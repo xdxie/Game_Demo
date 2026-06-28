@@ -118,14 +118,14 @@ class TTSQueue:
 
     # ── 入队 ──────────────────────────────────────────────────────────
 
-    def push(self, text: str, priority: Priority):
+    def push(self, text: str, priority: Priority, expire_sec: float | None = None):
         if not text:
             return
         item = TTSItem(
             priority=priority,
             enqueue_time=time.time(),
             text=text,
-            expire_sec=self._max_age[priority],
+            expire_sec=expire_sec if expire_sec is not None else self._max_age[priority],
         )
         interrupt = False
         with self._lock:

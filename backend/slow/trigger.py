@@ -184,21 +184,26 @@ class VLMRequestManager:
                 )
                 return
 
-            # 超时检查：从事件触发到 VLM 返回若超过 4s，建议已过时，丢弃（用户提问不丢弃）
-            if not is_user_q:
+            self._last_event_type  = event.type
+            self._last_submit_time = time.time()
+
+            # 计算剩余预算传给 TTS 队列：总预算 4s（事件触发→TTS播出），用户提问不限时
+            if is_user_q:
+                tts_expire = None
+            else:
                 elapsed = time.time() - args.get("submit_at", busy_since)
-                if elapsed > 4.0:
+                remaining = 4.0 - elapsed
+                if remaining <= 0:
                     logger.info(
                         "VLM result discarded (too late %.1fs > 4s): %s: %s",
                         elapsed, event.type.value, text[:40],
                     )
                     return
-
-            self._last_event_type  = event.type
-            self._last_submit_time = time.time()
+                tts_expire = remaining
+                logger.debug("VLM result budget: elapsed=%.1fs tts_expire=%.1fs", elapsed, tts_expire)
 
             logger.info("VLM result → TTS push [%s]: %s", args["priority"].name, text[:60])
-            self._tts.push(text, args["priority"])
+            self._tts.push(text, args["priority"], expire_sec=tts_expire)
 
             # 用户问答写入对话历史
             if is_user_q:
